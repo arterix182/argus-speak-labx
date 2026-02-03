@@ -81,6 +81,12 @@ const btnManage = $("#btnManage");
 const billingMsg = $("#billingMsg");
 const authMsg = $("#authMsg");
 
+// Prevent users from hammering the "Send link" button (Supabase has rate limits).
+// This is a local cooldown; Supabase still enforces its own limits, but this avoids accidental spam clicks.
+const OTP_COOLDOWN_MS = 60_000; // 60s
+const OTP_LAST_TS_KEY = "labx_otp_last_ts";
+let otpCooldownTimer = null;
+
 let supabaseClient = null;
 let authSession = null;
 let meState = { pro:false, status:"free", email:"Invitado" };
@@ -205,13 +211,12 @@ async function initSupabaseAuth(){
     showAuthMsg("⚠️ Falta configurar SUPABASE_URL / SUPABASE_ANON_KEY en Netlify.");
     return;
   }
+  // Use a unique storageKey per Supabase project to avoid token collisions between different apps/projects
   const projectRef = new URL(cfg.supabaseUrl).hostname.split('.')[0];
-const storageKey = `sb-${projectRef}-auth-token`;
-
-supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-  auth: { persistSession: true, storageKey }
-});
-
+  const storageKey = `sb-${projectRef}-auth-token`;
+  supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+    auth: { persistSession: true, storageKey }
+  });
 
   const { data } = await supabaseClient.auth.getSession();
   authSession = data?.session || null;
@@ -288,6 +293,54 @@ function renderAccountUI(){
   if(btnSubscribe) btnSubscribe.hidden = meState.pro;
 
   setPlanPillUI();
+
+  // Keep the send-link button under a short cooldown to avoid Supabase email rate limits.
+  updateOtpCooldownUI();
+}
+
+function otpCooldownRemainingMs(){
+  try{
+    const last = Number(localStorage.getItem(OTP_LAST_TS_KEY) || 0);
+    const left = OTP_COOLDOWN_MS - (Date.now() - last);
+    return Math.max(0, left);
+  }catch(_){
+    return 0;
+  }
+}
+
+function updateOtpCooldownUI(){
+  if(!btnSendLink) return;
+
+  const baseLabel = "Enviar link";
+  const tick = () => {
+    const left = otpCooldownRemainingMs();
+    if(left > 0){
+      const s = Math.ceil(left / 1000);
+      btnSendLink.disabled = true;
+      btnSendLink.textContent = `${baseLabel} (${s}s)`;
+      return;
+    }
+    // Cooldown finished
+    btnSendLink.disabled = !supabaseClient;
+    btnSendLink.textContent = baseLabel;
+    if(otpCooldownTimer){
+      clearInterval(otpCooldownTimer);
+      otpCooldownTimer = null;
+    }
+  };
+
+  // Update once immediately
+  tick();
+
+  // If we are in cooldown and no timer is running, start one
+  if(otpCooldownRemainingMs() > 0 && !otpCooldownTimer){
+    otpCooldownTimer = setInterval(tick, 500);
+  }
+}
+
+function beginOtpCooldown(){
+  try{ localStorage.setItem(OTP_LAST_TS_KEY, String(Date.now())); }catch(_){ }
+  updateOtpCooldownUI();
 }
 
 if(btnSendLink){
@@ -301,14 +354,37 @@ if(btnSendLink){
       showAuthMsg("Escribe un email válido.");
       return;
     }
+
+    // Local cooldown to avoid hitting Supabase email rate limits.
+    const remaining = otpCooldownRemainingMs();
+    if(remaining > 0){
+      const s = Math.ceil(remaining / 1000);
+      showAuthMsg(`⏳ Espera ${s}s para reenviar el link.`);
+      updateOtpCooldownUI();
+      return;
+    }
+
     showAuthMsg("Enviando link…");
     try{
+      // prevent double-click spam
+      btnSendLink.disabled = true;
       const redirectTo = window.location.origin + window.location.pathname;
       const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
       if(error) throw error;
+      beginOtpCooldown();
       showAuthMsg("✅ Listo. Revisa tu correo y abre el link para entrar.");
     }catch(err){
-      showAuthMsg("❌ " + (err?.message || "No se pudo enviar el link."));
+      const msg = (err?.message || "No se pudo enviar el link.");
+      const isRate = /rate\s*limit/i.test(msg);
+      if(isRate){
+        beginOtpCooldown();
+        showAuthMsg("❌ Límite de correos alcanzado. Espera un poco y vuelve a intentar. (Tip: no presiones varias veces)");
+      }else{
+        // re-enable immediately for non-rate errors
+        btnSendLink.disabled = !supabaseClient;
+        btnSendLink.textContent = "Enviar link";
+        showAuthMsg("❌ " + msg);
+      }
     }
   });
 }
