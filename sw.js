@@ -1,4 +1,4 @@
-const CACHE = "argus-speak-labx-v6";
+const CACHE = "argus-speak-labx-v10";
 const CORE = [
   "./",
   "./index.html",
@@ -25,7 +25,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
 
-  if(url.pathname.includes("/api/")){
+  if(url.pathname.startsWith("/api/") || url.pathname.startsWith("/.netlify/functions/")){
     e.respondWith(fetch(e.request).catch(() => new Response("offline", { status: 503 })));
     return;
   }
