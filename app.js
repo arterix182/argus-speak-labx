@@ -922,7 +922,7 @@ async function callAI(task, payload){
   if(!res.ok){
     const t = await res.text().catch(()=> "");
     // 401/402 -> show account modal to unlock
-    if(res.status === 401 || res.status === 402){
+    if(res.status === 401 || res.status === 402 || res.status === 429){
       openAccountModal();
     }
     throw new Error(t || `AI error (${res.status})`);
