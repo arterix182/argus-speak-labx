@@ -228,8 +228,33 @@ async function initSupabaseAuth(){
     }catch(_){ return ""; }
   };
 
-  const { data } = await supabaseClient.auth.getSession();
-  authSession = data?.session || null;
+  let data;
+try{
+  const res = await supabaseClient.auth.getSession();
+  data = res?.data;
+}catch(err){
+  const msg = String(err?.message || err || "");
+  // If session token was stored from another Supabase project, GoTrue may throw:
+  // "Your authentication token is not from a valid issuer."
+  if(msg.toLowerCase().includes("valid issuer")){
+    try{ localStorage.removeItem(storageKey); }catch(_){}
+    try{
+      // legacy keys from older versions
+      localStorage.removeItem("supabase.auth.token");
+      localStorage.removeItem("sb-auth-token");
+      // remove any old sb-*-auth-token keys to be safe
+      Object.keys(localStorage).filter(k => k.startsWith("sb-") && k.endsWith("-auth-token")).forEach(k => {
+        try{ localStorage.removeItem(k); }catch(_){}
+      });
+    }catch(_){}
+    authSession = null;
+    showAuthMsg("Se detectó una sesión vieja (issuer inválido). Ya limpié el token: vuelve a iniciar sesión (1 intento).");
+  }else{
+    showAuthMsg("No pude leer tu sesión. Recarga la página (Ctrl+F5) o usa Reset app.");
+  }
+}
+authSession = data?.session || null;
+
 
   // If stored token issuer doesn't match this project's auth endpoint, clear it (fixes 'valid issuer' errors)
   if(authSession?.access_token){
