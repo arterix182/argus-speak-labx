@@ -1,3 +1,4 @@
+const APP_VERSION = 'v12';
 /* ARGUS SPEAK LAB-X — Article + AI Prototype
    Client calls /api/ai (Netlify function) to keep OpenAI key secret.
 */
@@ -124,9 +125,30 @@ function closeAccountModal(){
   document.body.style.overflow = "";
 }
 
+
+// --- Hard auth cleanup: remove any Supabase tokens from storage (fixes 'valid issuer' across reused devices/browsers)
+function clearSupabaseStorage(){
+  const kill = (store) => {
+    try{
+      const keys = [];
+      for(let i=0; i<store.length; i++){
+        const k = store.key(i);
+        if(!k) continue;
+        if(k.startsWith("sb-") || k.includes("supabase") || k.includes("auth-token") || k.includes("gotrue")){
+          keys.push(k);
+        }
+      }
+      keys.forEach(k => { try{ store.removeItem(k); }catch(_){ } });
+    }catch(_){}
+  };
+  try{ kill(localStorage); }catch(_){}
+  try{ kill(sessionStorage); }catch(_){}
+}
+
 // Reset PWA cache (useful when a Service Worker got stuck)
 const btnResetApp = $("#btnResetApp");
 async function hardResetApp(){
+  try{ clearSupabaseStorage(); }catch(_){ }
   try{
     try{ stopSpeech(); }catch{}
     try{ stopListen(); }catch{}
@@ -237,6 +259,7 @@ try{
   // If session token was stored from another Supabase project, GoTrue may throw:
   // "Your authentication token is not from a valid issuer."
   if(msg.toLowerCase().includes("valid issuer")){
+    try{ clearSupabaseStorage(); }catch(_){ }
     try{ localStorage.removeItem(storageKey); }catch(_){}
     try{
       // legacy keys from older versions
@@ -262,9 +285,7 @@ authSession = data?.session || null;
     if(iss && iss !== expectedIss){
       try{ await supabaseClient.auth.signOut(); }catch(_){}
       try{
-        localStorage.removeItem(storageKey);
-        localStorage.removeItem("supabase.auth.token"); // legacy
-        localStorage.removeItem("sb-auth-token");       // legacy
+        try{ clearSupabaseStorage(); }catch(_){ }
       }catch(_){}
       authSession = null;
       showAuthMsg("Se detectó una sesión vieja de otro proyecto. Vuelve a iniciar sesión (envía el link una sola vez).");
