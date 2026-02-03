@@ -379,13 +379,44 @@ setPlanPillUI();
 // Post-checkout UX
 try{
   const url = new URL(window.location.href);
-  if(url.searchParams.get("success")==="1"){
+  const hadSuccess = (url.searchParams.get("success")==="1");
+  const hadCanceled = (url.searchParams.get("canceled")==="1");
+
+  if(hadSuccess || hadCanceled){
+    // Clean the URL so the message doesn't loop forever on refresh.
+    url.searchParams.delete("success");
+    url.searchParams.delete("canceled");
+    history.replaceState({}, document.title, url.pathname + (url.search ? url.search : ""));
+  }
+
+  if(hadCanceled){
     openAccountModal();
-    showBillingMsg("✅ Pago recibido. Actualizando acceso…");
-    setTimeout(()=>refreshMe().catch(()=>{}), 1200);
+    showBillingMsg("⚠️ Pago cancelado. Puedes intentarlo de nuevo cuando quieras.");
+  }
+
+  if(hadSuccess){
+    openAccountModal();
+    showBillingMsg("✅ Pago recibido. Confirmando acceso PRO…");
+
+    // Poll for PRO status (webhook can take a few seconds).
+    let tries = 0;
+    const maxTries = 20; // ~40s
+    const timer = setInterval(async () => {
+      tries++;
+      try{ await refreshMe(); }catch(_){}
+      if(meState?.pro){
+        showBillingMsg("✅ Listo: acceso PRO activado.");
+        clearInterval(timer);
+      } else if(tries >= maxTries){
+        showBillingMsg("⚠️ Pago OK, pero aún no se refleja. Revisa el webhook de Stripe o vuelve a abrir esta ventana.");
+        clearInterval(timer);
+      }
+    }, 2000);
+
+    // Quick first refresh
+    setTimeout(()=>refreshMe().catch(()=>{}), 500);
   }
 }catch(_){ }
-
 /* ---------- Voice + Logo controls ---------- */
 const brandBadge = $("#brandBadge");
 const voiceFemaleBtn = $("#voiceFemale");
