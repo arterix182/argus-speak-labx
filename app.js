@@ -456,7 +456,7 @@ if(btnSendLink){
       // prevent double-click spam
       btnSendLink.disabled = true;
       const redirectTo = window.location.origin + window.location.pathname;
-      const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
+      const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: "https://app.arguslab2x.com" } });
       if(error) throw error;
       beginOtpCooldown();
       showAuthMsg("✅ Listo. Revisa tu correo y abre el link para entrar.");
