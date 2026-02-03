@@ -1,4 +1,4 @@
-const CACHE = "argus-speak-labx-v10";
+const CACHE = "argus-speak-labx-v11";
 const CORE = [
   "./",
   "./index.html",

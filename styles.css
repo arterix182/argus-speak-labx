@@ -861,3 +861,25 @@ textarea:focus{
   border:1px solid rgba(255,255,255,.08);
 }
 .debugBar__row{display:flex; gap:8px; justify-content:flex-end; margin-top:8px;}
+
+
+/* ---------- Mobile polish (v11) ---------- */
+@media (max-width: 520px){
+  .topbar{padding:12px 12px; gap:10px}
+  .brand__badge{width:46px;height:46px;border-radius:16px}
+  .brand__name{font-size:18px; letter-spacing:.2px}
+  .brand__tag{font-size:12px; opacity:.92}
+  .topbar__actions{justify-content:flex-start; gap:8px}
+  .voiceSwitch,.voiceExact{flex:1 1 100%; justify-content:flex-start}
+  .voiceSwitch__label,.voiceExact__label{display:none}
+  .voiceExact .select--compact{min-width: 0; width: 100%; max-width: none}
+  .btn{padding:10px 12px; font-size:13px}
+  .btn--mini{padding:8px 10px; font-size:12px}
+  .planPill{padding:8px 10px; font-size:12px}
+  .shell{padding:12px 12px calc(18px + env(safe-area-inset-bottom))}
+  .tabs{gap:8px; padding:10px 0; overflow-x:auto; -webkit-overflow-scrolling:touch}
+  .tab{min-width: 88px; padding:10px 12px}
+  .card{padding:14px}
+  .grid2{gap:12px}
+  textarea,input,select{font-size:16px}
+}
