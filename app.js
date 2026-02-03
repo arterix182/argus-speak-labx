@@ -205,7 +205,13 @@ async function initSupabaseAuth(){
     showAuthMsg("⚠️ Falta configurar SUPABASE_URL / SUPABASE_ANON_KEY en Netlify.");
     return;
   }
-  supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  const projectRef = new URL(cfg.supabaseUrl).hostname.split('.')[0];
+const storageKey = `sb-${projectRef}-auth-token`;
+
+supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+  auth: { persistSession: true, storageKey }
+});
+
 
   const { data } = await supabaseClient.auth.getSession();
   authSession = data?.session || null;
