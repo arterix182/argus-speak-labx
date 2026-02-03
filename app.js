@@ -211,18 +211,59 @@ async function initSupabaseAuth(){
     showAuthMsg("⚠️ Falta configurar SUPABASE_URL / SUPABASE_ANON_KEY en Netlify.");
     return;
   }
-  // Use a unique storageKey per Supabase project to avoid token collisions between different apps/projects
+  // Create Supabase client with a storageKey unique per project (prevents token collisions across different Supabase projects)
   const projectRef = new URL(cfg.supabaseUrl).hostname.split('.')[0];
   const storageKey = `sb-${projectRef}-auth-token`;
+
   supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
     auth: { persistSession: true, storageKey }
   });
 
+  // If a stale session from another Supabase project is stored, wipe it and force re-login
+  const expectedIss = `${cfg.supabaseUrl.replace(/\/$/, "")}/auth/v1`;
+  const getIss = (token) => {
+    try{
+      const p = JSON.parse(atob(token.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));
+      return p?.iss || "";
+    }catch(_){ return ""; }
+  };
+
   const { data } = await supabaseClient.auth.getSession();
   authSession = data?.session || null;
 
+  // If stored token issuer doesn't match this project's auth endpoint, clear it (fixes 'valid issuer' errors)
+  if(authSession?.access_token){
+    const iss = getIss(authSession.access_token);
+    if(iss && iss !== expectedIss){
+      try{ await supabaseClient.auth.signOut(); }catch(_){}
+      try{
+        localStorage.removeItem(storageKey);
+        localStorage.removeItem("supabase.auth.token"); // legacy
+        localStorage.removeItem("sb-auth-token");       // legacy
+      }catch(_){}
+      authSession = null;
+      showAuthMsg("Se detectó una sesión vieja de otro proyecto. Vuelve a iniciar sesión (envía el link una sola vez).");
+    }
+  }
+
   supabaseClient.auth.onAuthStateChange(async (_event, session) => {
     authSession = session || null;
+
+    // Guard against stale tokens from another Supabase project
+    if(authSession?.access_token){
+      const iss = getIss(authSession.access_token);
+      if(iss && iss !== expectedIss){
+        try{ await supabaseClient.auth.signOut(); }catch(_){}
+        try{
+          localStorage.removeItem(storageKey);
+          localStorage.removeItem("supabase.auth.token");
+          localStorage.removeItem("sb-auth-token");
+        }catch(_){}
+        authSession = null;
+        showAuthMsg("Sesión inválida (issuer). Cierra sesión y vuelve a entrar con el link.");
+      }
+    }
+
     await ensureProfile().catch(()=>{});
     await refreshMe().catch(()=>{});
     renderAccountUI();
