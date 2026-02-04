@@ -1,3 +1,23 @@
+
+// --- Ensure visible word-highlighting during TTS (no external CSS dependency) ---
+(function ensureTtsHighlightCSS(){
+  try{
+    const id = "tts-highlight-style";
+    if(document.getElementById(id)) return;
+    const s = document.createElement("style");
+    s.id = id;
+    s.textContent = `
+      .is-speaking .word{ transition: text-shadow .12s ease, background-color .12s ease, color .12s ease; }
+      .word.is-reading{
+        text-shadow: 0 0 10px rgba(255,255,255,.9), 0 0 18px rgba(0,190,255,.75), 0 0 28px rgba(0,190,255,.5);
+        background: rgba(0,190,255,.16);
+        border-radius: .35em;
+        padding: .06em .12em;
+      }
+    `;
+    document.head.appendChild(s);
+  }catch(_){}
+})();
 const APP_VERSION = 'v15';
 /* ARGUS SPEAK LAB-X — Article + AI Prototype
    Client calls /api/ai (Netlify function) to keep OpenAI key secret.
@@ -221,6 +241,23 @@ function authHeaders(){
   return { "Authorization": "Bearer " + authSession.access_token };
 }
 
+
+async function ensureFreshSession(){
+  try{
+    const g = await supabaseClient?.auth?.getSession?.();
+    let session = g?.data?.session || null;
+    // Refresh if expiring within 60s
+    const expMs = session?.expires_at ? (session.expires_at * 1000) : 0;
+    if(session && expMs && (expMs - Date.now()) < 60_000 && supabaseClient?.auth?.refreshSession){
+      const r = await supabaseClient.auth.refreshSession();
+      session = r?.data?.session || session;
+    }
+    authSession = session;
+    return session;
+  }catch(_){
+    return authSession || null;
+  }
+}
 async function fetchConfig(){
   const candidates = [
     { base:"/api", url:"/api/config" },
@@ -620,6 +657,7 @@ if(btnVerifyCode){
       showOtpUI(false);
       inpCode.value = "";
       showAuthMsg("✅ Sesión iniciada.");
+      await ensureFreshSession().catch(()=>{});
       hideMagicLinkCopy();
       // Refresh UI
       await refreshMe().catch(()=>{});
@@ -642,9 +680,10 @@ if(btnLogout){
 }
 
 async function startCheckout(){
-  if(!authSession?.access_token){
+  const s = await ensureFreshSession();
+  if(!s?.access_token){
     openAccountModal();
-    showAuthMsg("Entra con tu email para poder suscribirte.");
+    showAuthMsg("Primero: Enviar código → pegarlo → Verificar. Luego ya puedes Suscribirte.");
     return;
   }
   showBillingMsg("Abriendo checkout…");
@@ -667,7 +706,8 @@ async function startCheckout(){
 }
 
 async function openPortal(){
-  if(!authSession?.access_token){
+  const s = await ensureFreshSession();
+  if(!s?.access_token){
     openAccountModal();
     return;
   }
@@ -1195,6 +1235,7 @@ function speak(text, opts = {}){
   u.onstart = () => { try{ startLogoReact(u.rate); }catch{} };
 
   const container = opts.container || null;
+  const highlightEl = opts.highlightEl || null;
   let index = null;
 
   if(container){
@@ -1275,7 +1316,8 @@ u.onboundary = (e) => {
     const cleanup = () => {
       stopTick();
       stopLogoReact();
-      if(timer){ window.clearInterval(timer); timer = null; }
+            try{ highlightEl && highlightEl.classList.remove("is-reading"); }catch(_){ }
+if(timer){ window.clearInterval(timer); timer = null; }
       if(activeSpeech?.container === container){
         clearReadingUI(container);
         activeSpeech = null;
@@ -1289,8 +1331,9 @@ u.onboundary = (e) => {
   }
 
   if(!container){
-    u.onend = () => stopLogoReact();
-    u.onerror = () => stopLogoReact();
+    if(highlightEl){ try{ highlightEl.classList.add("is-reading"); }catch(_){ } }
+    u.onend = () => { try{ highlightEl && highlightEl.classList.remove("is-reading"); }catch(_){ } stopLogoReact(); };
+    u.onerror = () => { try{ highlightEl && highlightEl.classList.remove("is-reading"); }catch(_){ } stopLogoReact(); };
   }
 
   speechSynthesis.speak(u);
@@ -1321,14 +1364,14 @@ async function callAI(task, payload){
       openAccountModal();
     }
     
-    // Issuer mismatch: token belongs to another Supabase project OR backend SUPABASE_URL is different.
-    if(/valid issuer/i.test(t) || /^ISSUER\b/i.test(t)){
-      try{ await supabaseClient?.auth?.signOut(); }catch(_){}
-      try{ clearSupabaseStorage(); }catch(_){}
-      try{ location.reload(); }catch(_){}
+    // Issuer mismatch: no expulsamos al usuario; solo mostramos el error.
+    if(/valid issuer/i.test(t) || /^ISSUER/i.test(t)){
+      throw new Error("Sesión incompatible con el servidor. Usa Reset app (caché) y vuelve a iniciar sesión.");
     }
     throw new Error(t || `AI error (${res.status})`);
   }
+  return await res.json();
+}
   return await res.json();
 }
 
@@ -1526,10 +1569,10 @@ function setWordPanel(info){
     ${(info.warnings||[]).length ? `<div class="muted" style="margin-top:8px;">Ojo: ${safeHtml(info.warnings.join(" · "))}</div>` : ""}
   `;
   btnSpeakWord.disabled = false;
-  btnSpeakWord.onclick = () => speak(info.word);
+  btnSpeakWord.onclick = () => speak(info.word, { highlightEl: info.el || null });
   btnQuizWord.disabled = false;
 }
-btnSpeakWord.addEventListener("click", () => { if(lastWordPanel) speak(lastWordPanel.word); });
+btnSpeakWord.addEventListener("click", () => { if(lastWordPanel) speak(lastWordPanel.word, { highlightEl: lastWordPanel.el || null }); });
 
 btnQuizWord.addEventListener("click", async () => {
   if(!lastWordPanel) return;
