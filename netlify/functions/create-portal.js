@@ -82,7 +82,7 @@ export default async (req) => {
     const customer = profile?.stripe_customer_id;
     if(!customer) return new Response("No Stripe customer for this user. Subscribe first.", { status: 400 });
 
-    const base = (process.env.PUBLIC_SITE_URL || baseUrlFromReq(req)).replace(/\/$/, "");
+    const base = baseUrlFromReq(req);
     const portal = await stripePostForm("/v1/billing_portal/sessions", {
       customer,
       return_url: base + "/"

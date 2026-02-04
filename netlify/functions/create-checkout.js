@@ -104,7 +104,7 @@ export default async (req) => {
       await updateProfile(user.id, { stripe_customer_id: customerId, email: user.email || profile?.email || null });
     }
 
-    const base = (process.env.PUBLIC_SITE_URL || baseUrlFromReq(req)).replace(/\/$/, "");
+    const base = baseUrlFromReq(req);
     const success_url = `${base}/?success=1`;
     const cancel_url = `${base}/?canceled=1`;
 

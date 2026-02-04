@@ -20,7 +20,11 @@ async function getSupabaseUser(req){
   const r = await fetch(`${supabaseUrl}/auth/v1/user`, {
     headers: { "apikey": anonKey, "Authorization": `Bearer ${token}` }
   });
-  if(!r.ok) return { error:"Sesión inválida. Vuelve a entrar.", status:401 };
+  if(!r.ok){
+  const txt = await r.text().catch(()=> "");
+  if(/valid issuer/i.test(txt)) return { error:"ISSUER", status:401 };
+  return { error:"Sesión inválida. Vuelve a entrar.", status:401 };
+}
   const user = await r.json();
   return { user };
 }

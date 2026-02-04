@@ -1,7 +1,7 @@
 {
   "name": "ARGUS SPEAK LAB-X",
   "short_name": "LAB-X",
-  "start_url": "./index.html",
+  "start_url": "/?source=pwa",
   "display": "standalone",
   "background_color": "#070a14",
   "theme_color": "#0b1022",
@@ -16,5 +16,7 @@
       "sizes": "512x512",
       "type": "image/png"
     }
-  ]
+  ],
+  "scope": "/",
+  "id": "/?labx"
 }

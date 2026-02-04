@@ -213,8 +213,16 @@
           <div class="muted small">Te mandamos un link mágico para entrar (sin contraseñas).</div>
         </div>
 
+          <div class="field" id="otpField" hidden>
+            <label for="authCode">Código (6 dígitos)</label>
+            <input id="authCode" type="text" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+            <div class="muted small">Opción recomendada en celular: te llega un código y lo pegas aquí, sin salir de la app.</div>
+          </div>
+
         <div class="row row--tight">
           <button class="btn btn--primary" id="btnSendLink">Enviar link</button>
+          <button class="btn btn--soft" id="btnSendCode">Enviar código</button>
+          <button class="btn btn--primary" id="btnVerifyCode" hidden>Verificar</button>
           <button class="btn btn--ghost" id="btnLogout" hidden>Salir</button>
         </div>
 

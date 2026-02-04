@@ -1,4 +1,4 @@
-const APP_VERSION = 'v12';
+const APP_VERSION = 'v13';
 /* ARGUS SPEAK LAB-X — Article + AI Prototype
    Client calls /api/ai (Netlify function) to keep OpenAI key secret.
 */
@@ -10,6 +10,9 @@ function apiEndpoint(name){
   name = String(name||"").replace(/^\/+/, "");
   return `${API_BASE}/${name}`;
 }
+
+/* ---------- Public URLs ---------- */
+let PUBLIC_APP_URL = ""; // canonical app origin for auth redirects (set from /api/config)
 
 
 /* ---------- ARGUS_DEBUG: capture errors so the app never "dies" silently ---------- */
@@ -76,6 +79,11 @@ const btnAccountClose = $("#btnAccountClose");
 const accountEmailEl = $("#accountEmail");
 const authEmailEl = $("#authEmail");
 const btnSendLink = $("#btnSendLink");
+
+const btnSendCode = $("#btnSendCode");
+const otpField = $("#otpField");
+const inpCode = $("#authCode");
+const btnVerifyCode = $("#btnVerifyCode");
 const btnLogout = $("#btnLogout");
 const btnSubscribe = $("#btnSubscribe");
 const btnManage = $("#btnManage");
@@ -103,6 +111,15 @@ function setPlanPillUI(){
   }
 }
 
+
+function showOtpUI(show){
+  try{
+    if(!otpField || !inpCode || !btnVerifyCode) return;
+    otpField.hidden = !show;
+    btnVerifyCode.hidden = !show;
+    if(show) setTimeout(() => { try{ inpCode.focus(); }catch(_){ } }, 50);
+  }catch(_){}
+}
 function showAuthMsg(text){
   if(authMsg) authMsg.textContent = text || "";
 }
@@ -233,13 +250,53 @@ async function initSupabaseAuth(){
     showAuthMsg("⚠️ Falta configurar SUPABASE_URL / SUPABASE_ANON_KEY en Netlify.");
     return;
   }
+  // Canonical public app URL (used for Magic Link redirect + Stripe returns)
+  try{ PUBLIC_APP_URL = (cfg.publicAppUrl || "").replace(/\/$/, ""); }catch(_){ PUBLIC_APP_URL = ""; }
+
   // Create Supabase client with a storageKey unique per project (prevents token collisions across different Supabase projects)
   const projectRef = new URL(cfg.supabaseUrl).hostname.split('.')[0];
   const storageKey = `sb-${projectRef}-auth-token`;
 
   supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-    auth: { persistSession: true, storageKey }
+    auth: {
+      persistSession: true,
+      storageKey,
+      storage: window.localStorage,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      flowType: "pkce",
+    }
   });
+
+
+  // If we are returning from a Magic Link, exchange params for a session.
+// PKCE flow uses ?code=... ; older/implicit can use #access_token=...
+// If the link opens on a *different domain* than where you requested it, the PKCE verifier won't exist and exchange will fail.
+try{
+  const u = new URL(location.href);
+  const code = u.searchParams.get("code");
+  const hasHashToken = (location.hash || "").includes("access_token=");
+  if(code){
+    const { error } = await supabaseClient.auth.exchangeCodeForSession(code);
+    if(error){
+      showAuthMsg("⚠️ No se pudo completar el login. Tip: abre el link en Chrome (no navegador interno) y usa SIEMPRE el mismo dominio de la app.");
+    }else{
+      showAuthMsg("✅ Sesión iniciada. Bienvenido.");
+    }
+    // Clean URL (remove code/type params) to avoid repeats
+    ["code","type","redirectedFrom","from"].forEach(p => u.searchParams.delete(p));
+    history.replaceState({}, document.title, u.toString());
+  }else if(hasHashToken && supabaseClient.auth.getSessionFromUrl){
+    const { error } = await supabaseClient.auth.getSessionFromUrl({ storeSession:true });
+    if(error){
+      showAuthMsg("⚠️ No se pudo completar el login (token). Reintenta enviar el correo.");
+    }else{
+      showAuthMsg("✅ Sesión iniciada. Bienvenido.");
+    }
+    // Clean hash
+    history.replaceState({}, document.title, location.pathname);
+  }
+}catch(_){}
 
   // If a stale session from another Supabase project is stored, wipe it and force re-login
   const expectedIss = `${cfg.supabaseUrl.replace(/\/$/, "")}/auth/v1`;
@@ -294,6 +351,8 @@ authSession = data?.session || null;
 
   supabaseClient.auth.onAuthStateChange(async (_event, session) => {
     authSession = session || null;
+    // Hide OTP input after login/logout transitions
+    try{ if(authSession) showOtpUI(false); }catch(_){ }
 
     // Guard against stale tokens from another Supabase project
     if(authSession?.access_token){
@@ -455,8 +514,8 @@ if(btnSendLink){
     try{
       // prevent double-click spam
       btnSendLink.disabled = true;
-      const redirectTo = window.location.origin + window.location.pathname;
-      const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: "https://app.arguslab2x.com" } });
+      const redirectTo = (PUBLIC_APP_URL || window.location.origin).replace(/\/$/, "");
+      const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
       if(error) throw error;
       beginOtpCooldown();
       showAuthMsg("✅ Listo. Revisa tu correo y abre el link para entrar.");
@@ -974,6 +1033,40 @@ function stopSpeech(){
   stopLogoReact();
 }
 
+
+function buildWordTimeline(index, rate){
+  // Build an estimated time (ms) for each word, based on length + punctuation.
+  // Later we calibrate with real boundary events so it matches audio better (especially on mobile).
+  const basePerWord = 290;      // ms (slower, closer to mobile speech)
+  const perChar = 25;          // ms per character (slower)
+  const punctBonus = 210;      // extra pause after punctuation (slower)
+  const r = Math.max(0.6, Math.min(1.6, rate || 1));
+  let cum = 0;
+  const timeline = [];
+  for(const it of index){
+    const w = (it.word || "").trim();
+    if(!w) continue;
+    let ms = (basePerWord + perChar * Math.min(12, w.length)) / r;
+    if(/[\.!\?]$/.test(w)) ms += punctBonus;
+    else if(/[,;:]$/.test(w)) ms += punctBonus * 0.6;
+    cum += ms;
+    timeline.push({ el: it.el, charStart: it.start, charEnd: it.end, t: cum });
+  }
+  return timeline;
+}
+
+function findTimelineIdxByChar(timeline, charIndex){
+  // Find last word where start<=charIndex
+  let lo = 0, hi = timeline.length - 1, ans = -1;
+  while(lo <= hi){
+    const mid = (lo + hi) >> 1;
+    if(timeline[mid].charStart <= charIndex){
+      ans = mid; lo = mid + 1;
+    }else hi = mid - 1;
+  }
+  return ans;
+}
+
 function speak(text, opts = {}){
   if(!("speechSynthesis" in window)) return;
   stopSpeech();
@@ -1005,20 +1098,18 @@ function speak(text, opts = {}){
     container.classList.add("is-speaking");
     activeSpeech = { container, index, lastEl: null };
 
-    // Fallback: si el navegador no soporta onboundary, avanzamos palabra por palabra con un timer.
-    let boundaryUsed = false;
-    let timer = null;
-    let fallbackI = 0;
-    const fallbackStepMs = Math.max(90, Math.round(260 / (u.rate || 1)));
+        // Word highlight sync:
+    // - Desktop: use onboundary (usually accurate)
+    // - Mobile: onboundary is often buggy/too fast; use a conservative time-based timeline so highlight matches audio better.
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const timeline = buildWordTimeline(index, u.rate || 1);
+    let raf = null;
+    let startAt = 0;
+    let lastIdx = -1;
 
-    timer = window.setInterval(() => {
-      if(boundaryUsed) return;
-      const item = index[fallbackI++];
-      if(!item){
-        window.clearInterval(timer);
-        timer = null;
-        return;
-      }
+    const showAtIdx = (i) => {
+      const item = timeline[i];
+      if(!item) return;
       const el = item.el;
       if(activeSpeech?.lastEl && activeSpeech.lastEl !== el){
         activeSpeech.lastEl.classList.remove("is-reading");
@@ -1027,27 +1118,52 @@ function speak(text, opts = {}){
       activeSpeech.lastEl = el;
       if(opts.follow) maybeScrollIntoView(el);
       bumpLogo();
-    }, fallbackStepMs);
-
-    u.onboundary = (e) => {
-      boundaryUsed = true;
-      if(timer){ window.clearInterval(timer); timer = null; }
-      // Chrome/Edge usually emit word boundaries con charIndex.
-      const ci = typeof e.charIndex === "number" ? e.charIndex : 0;
-      const el = findWordElByCharIndex(index, ci);
-      if(!el) return;
-
-      if(activeSpeech?.lastEl && activeSpeech.lastEl !== el){
-        activeSpeech.lastEl.classList.remove("is-reading");
-      }
-      el.classList.add("is-reading");
-      activeSpeech.lastEl = el;
-
-      if(opts.follow) maybeScrollIntoView(el);
-      bumpLogo();
     };
 
+    const tick = () => {
+      if(!activeSpeech || activeSpeech.container !== container) return;
+      const elapsed = performance.now() - startAt;
+      // Advance while the next word estimated time is <= elapsed (never runs ahead of time).
+      while(lastIdx + 1 < timeline.length && timeline[lastIdx + 1].t <= elapsed){
+        lastIdx++;
+      }
+      if(lastIdx >= 0) showAtIdx(lastIdx);
+      raf = requestAnimationFrame(tick);
+    };
+
+    const stopTick = () => {
+      if(raf){ cancelAnimationFrame(raf); raf = null; }
+    };
+
+    u.onstart = () => {
+      startLogoReact();
+      startAt = performance.now();
+      lastIdx = -1;
+      stopTick();
+      raf = requestAnimationFrame(tick);
+    };
+
+// Boundary sync (best when supported). On Android it can run a bit early, so we add a tiny delay.
+let boundarySeen = false;
+u.onboundary = (e) => {
+  const ci = typeof e.charIndex === "number" ? e.charIndex : 0;
+  const idx = findTimelineIdxByChar(timeline, ci);
+  if(idx >= 0){
+    boundarySeen = true;
+    lastIdx = Math.max(lastIdx, idx);
+    const delay = isMobile ? 180 : 0;
+    setTimeout(() => {
+      if(activeSpeech && activeSpeech.container === container){
+        showAtIdx(lastIdx);
+      }
+    }, delay);
+  }
+};
+
+// Timeline tick stays as fallback (some voices don't emit boundaries reliably).
+
     const cleanup = () => {
+      stopTick();
       stopLogoReact();
       if(timer){ window.clearInterval(timer); timer = null; }
       if(activeSpeech?.container === container){
@@ -1093,6 +1209,13 @@ async function callAI(task, payload){
     // 401/402 -> show account modal to unlock
     if(res.status === 401 || res.status === 402 || res.status === 429){
       openAccountModal();
+    }
+    
+    // Issuer mismatch: token belongs to another Supabase project OR backend SUPABASE_URL is different.
+    if(/valid issuer/i.test(t) || /^ISSUER\b/i.test(t)){
+      try{ await supabaseClient?.auth?.signOut(); }catch(_){}
+      try{ clearSupabaseStorage(); }catch(_){}
+      try{ location.reload(); }catch(_){}
     }
     throw new Error(t || `AI error (${res.status})`);
   }
