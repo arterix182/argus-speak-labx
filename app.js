@@ -4,28 +4,34 @@ const APP_VERSION = 'v15';
 */
 const $ = (q) => document.querySelector(q);
 
-// --- Shadow/glow fix (forces readable text shadow even if CSS overrides it) ---
-(function ensureShadowCSS(){
-  try{
-    const id = "argus-shadow-fix";
-    if(document.getElementById(id)) return;
-    const st = document.createElement("style");
-    st.id = id;
-    st.textContent = `
-      /* Baseline shadow for article + demo text (and all tokenized word spans) */
-      #articleRendered, #demoText { text-shadow: 0 0 10px rgba(0,0,0,0.65), 0 0 18px rgba(0,255,255,0.18) !important; }
-      #articleRendered .word, #demoText .word { text-shadow: 0 0 10px rgba(0,0,0,0.65), 0 0 18px rgba(0,255,255,0.18) !important; }
-    `;
-    (document.head || document.documentElement).appendChild(st);
-  }catch(_){}
-})();
-
 // API base autodetect: "/api" (with redirect) or "/.netlify/functions" (direct)
 let API_BASE = "/api";
 function apiEndpoint(name){
   name = String(name||"").replace(/^\/+/, "");
   return `${API_BASE}/${name}`;
 }
+
+// --- Reading highlight styles (restore word shadow while TTS plays) ---
+function injectReadingStyles(){
+  try{
+    if(document.getElementById("labx-reading-style")) return;
+    const style = document.createElement("style");
+    style.id = "labx-reading-style";
+    style.textContent = `
+      .word.is-reading{
+        text-shadow: 0 0 10px rgba(0,0,0,.85), 0 0 18px rgba(0,170,255,.55);
+        transition: text-shadow .12s ease, transform .12s ease;
+        transform: translateZ(0);
+      }
+      .word.is-reading.is-selected{
+        text-shadow: 0 0 12px rgba(0,0,0,.9), 0 0 22px rgba(255,210,0,.55);
+      }
+    `;
+    document.head.appendChild(style);
+  }catch(_){}
+}
+
+
 
 /* ---------- Public URLs ---------- */
 let PUBLIC_APP_URL = ""; // canonical app origin for auth redirects (set from /api/config)
@@ -139,6 +145,20 @@ function showOtpUI(show){
 function showAuthMsg(text){
   if(authMsg) authMsg.textContent = text || "";
 }
+
+function disableEmailAuthUI(){
+  try{
+    // Hide Magic Link / email OTP UI (users can stay as anonymous guest)
+    if(authEmailEl) authEmailEl.closest("div")?.classList?.add("hidden");
+    if(btnSendLink) btnSendLink.hidden = true;
+    if(btnSendCode) btnSendCode.hidden = true;
+    if(otpField) otpField.hidden = true;
+    if(inpCode) inpCode.hidden = true;
+    if(btnVerifyCode) btnVerifyCode.hidden = true;
+  }catch(_){}
+}
+
+
 function showBillingMsg(text){
   if(billingMsg) billingMsg.textContent = text || "";
 }
@@ -385,7 +405,10 @@ authSession = data?.session || null;
       }
     }
 
-    await ensureProfile().catch(()=>{});
+    disableEmailAuthUI();
+  injectReadingStyles();
+  await ensureAnonymousSession();
+  await ensureProfile().catch(()=>{});
     await refreshMe().catch(()=>{});
     renderAccountUI();
   });
@@ -393,6 +416,27 @@ authSession = data?.session || null;
   await ensureProfile().catch(()=>{});
   await refreshMe().catch(()=>{});
   renderAccountUI();
+}
+
+
+async function ensureAnonymousSession(){
+  if(!supabaseClient) return;
+  try{
+    const { data } = await supabaseClient.auth.getSession();
+    authSession = data?.session || null;
+    if(authSession?.access_token) return;
+    // Supabase anonymous auth (must be enabled in Supabase Auth settings)
+    if(typeof supabaseClient.auth.signInAnonymously === "function"){
+      const { data: d, error } = await supabaseClient.auth.signInAnonymously();
+      if(error) throw error;
+      authSession = d?.session || null;
+      showAuthMsg(""); // clear
+      return;
+    }
+    showAuthMsg("⚠️ Esta app requiere Anonymous Auth en Supabase para usar PRO sin correo. Actívalo en Supabase → Auth.");
+  }catch(err){
+    showAuthMsg("⚠️ No se pudo iniciar como invitado. Activa Anonymous Auth en Supabase o recarga la app.");
+  }
 }
 
 async function ensureProfile(){
@@ -531,10 +575,7 @@ if(btnSendLink){
       // prevent double-click spam
       btnSendLink.disabled = true;
       const redirectTo = (PUBLIC_APP_URL || window.location.origin).replace(/\/$/, "");
-      const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
-      if(error) throw error;
-      beginOtpCooldown();
-      showAuthMsg("✅ Listo. Revisa tu correo y abre el link para entrar.");
+      showAuthMsg("✅ Ya no usamos correo para entrar. Estás en modo invitado automáticamente.");
     }catch(err){
       const msg = (err?.message || "No se pudo enviar el link.");
       const isRate = /rate\s*limit/i.test(msg);
@@ -953,7 +994,6 @@ function tokenizeToSpans(text){
 
 /* ---------- Demo text ---------- */
 const demoTextEl = $("#demoText");
-applyTextShadow(demoTextEl);
 const demoText = `Hello my name is ARGUS, My day at work starts early. I review tasks, solve problems, and help my team move faster. At the end, I reflect on what improved — and what still needs work.`;
 if(demoTextEl) demoTextEl.appendChild(tokenizeToSpans(demoText));
 
@@ -1187,7 +1227,8 @@ u.onboundary = (e) => {
     const cleanup = () => {
       stopTick();
       stopLogoReact();
-if(activeSpeech?.container === container){
+      if(timer){ window.clearInterval(timer); timer = null; }
+      if(activeSpeech?.container === container){
         clearReadingUI(container);
         activeSpeech = null;
       }else{
@@ -1227,19 +1268,16 @@ async function callAI(task, payload){
 
   if(!res.ok){
     const t = await res.text().catch(()=> "");
-    // 401/402/429 -> show account modal to unlock (except issuer mismatch, which is backend config)
+    // 401/402 -> show account modal to unlock
     if(res.status === 401 || res.status === 402 || res.status === 429){
-      if(!(/valid issuer/i.test(t) || /invalid issuer/i.test(t) || /^ISSUER/i.test(t))){
-        openAccountModal();
-      }
+      openAccountModal();
     }
+    
     // Issuer mismatch: token belongs to another Supabase project OR backend SUPABASE_URL is different.
-    // IMPORTANT: Do NOT auto sign-out here. This is usually a backend env mismatch (config vs ai function).
-    if(/valid issuer/i.test(t) || /invalid issuer/i.test(t) || /^ISSUER\b/i.test(t)){
-      try{
-        ARGUS_DEBUG.show("⚠️ Issuer mismatch: /api/config y /api/ai parecen apuntar a proyectos distintos de Supabase. Revisa SUPABASE_URL/SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE en Netlify (todas las funciones) y vuelve a desplegar.");
-      }catch(_){}
-      throw new Error("Sesión incompatible con el servidor (issuer). No es tu cuenta: es configuración del backend.");
+    if(/valid issuer/i.test(t) || /^ISSUER\b/i.test(t)){
+      try{ await supabaseClient?.auth?.signOut(); }catch(_){}
+      try{ clearSupabaseStorage(); }catch(_){}
+      try{ location.reload(); }catch(_){}
     }
     throw new Error(t || `AI error (${res.status})`);
   }
@@ -1378,18 +1416,6 @@ sheetSave.addEventListener("click", () => {
 /* ---------- Article view ---------- */
 const articleInput = $("#articleInput");
 const articleRendered = $("#articleRendered");
-
-// --- Text shadow baseline (keeps the "glow/shadow" visible even when not speaking) ---
-// NOTE: This helper is safe even if called before this section executes (no TDZ issues).
-function applyTextShadow(el){
-  if(!el) return;
-  const DEFAULT_TEXT_SHADOW = '0 0 10px rgba(0,0,0,0.65), 0 0 18px rgba(0,255,255,0.18)';
-  try{
-    // Force priority in case CSS sets text-shadow: none !important
-    el.style.setProperty("text-shadow", DEFAULT_TEXT_SHADOW, "important");
-  }catch(_){}
-}
-applyTextShadow(articleRendered);
 let lastWordPanel = null;
 
 $("#btnRenderArticle").addEventListener("click", () => {
