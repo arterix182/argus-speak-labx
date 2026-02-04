@@ -126,7 +126,7 @@ function validEmail(email){
 
 if(btnSendCode){
   btnSendCode.addEventListener("click", async () => {
-    const email = String(authEmailEl?.value || "").trim();
+    const email = String(authEmailEl?.value || "").trim().toLowerCase();
     if(!validEmail(email)){
       showAuthMsg("⚠️ Escribe un email válido.");
       return;
@@ -138,13 +138,14 @@ if(btnSendCode){
       return;
     }
     showAuthMsg("Enviando código…");
+    try{ await supabaseClient.auth.signOut(); }catch(_){ }
     try{
       btnSendCode.disabled = true;
       // signInWithOtp triggers OTP *or* link depending on Supabase settings.
       // Ensure Email OTP is enabled in Supabase Auth settings.
       const { error } = await supabaseClient.auth.signInWithOtp({
         email,
-        options: { shouldCreateUser: true }
+        options: { shouldCreateUser: true, emailRedirectTo: (PUBLIC_APP_URL || window.location.origin) }
       });
       if(error) throw error;
       beginOtpCooldown();
@@ -161,8 +162,8 @@ if(btnSendCode){
 
 if(btnVerifyCode){
   btnVerifyCode.addEventListener("click", async () => {
-    const email = String(authEmailEl?.value || "").trim();
-    const token = String(inpCode?.value || "").trim().replace(/\s+/g,"");
+    const email = String(authEmailEl?.value || "").trim().toLowerCase();
+    const token = String(inpCode?.value || "").replace(/\D/g,"");
     if(!validEmail(email)){
       showAuthMsg("⚠️ Email inválido.");
       return;
@@ -173,15 +174,25 @@ if(btnVerifyCode){
     }
     showAuthMsg("Verificando…");
     try{
-      const { data, error } = await supabaseClient.auth.verifyOtp({ email, token, type: "email" });
-      if(error) throw error;
+      let data=null, error=null;
+// Supabase puede devolver OTP como "email" o "signup" según el estado del usuario.
+// Probamos ambos para que no te bloquee por configuración.
+({ data, error } = await supabaseClient.auth.verifyOtp({ email, token, type: "email" }));
+if(error){
+  ({ data, error } = await supabaseClient.auth.verifyOtp({ email, token, type: "signup" }));
+}
+if(error){
+  ({ data, error } = await supabaseClient.auth.verifyOtp({ email, token, type: "magiclink" }));
+}
+if(error) throw error;
       authSession = data?.session || authSession;
+      try{ const s = await supabaseClient.auth.getSession(); authSession = s?.data?.session || authSession; }catch(_){ }
       showAuthMsg("✅ Sesión iniciada.");
       // refresh profile/pro
       refreshMe().catch(()=>{});
       renderAccountUI();
     }catch(err){
-      showAuthMsg("❌ " + (err?.message || "Token inválido o expirado. Pide un código nuevo."));
+      showAuthMsg("❌ " + (err?.message || "Token inválido o expirado.") + "  Tip: usa el ÚLTIMO código recibido (si pides otro, el anterior se invalida). Verifica en menos de 5 min.");
     }
   });
 }
@@ -600,6 +611,7 @@ async function startCheckout(){
   try{
     const { data } = await supabaseClient?.auth?.getSession?.() || {};
     authSession = data?.session || authSession;
+      try{ const s = await supabaseClient.auth.getSession(); authSession = s?.data?.session || authSession; }catch(_){ }
   }catch(_){ }
   if(!authSession?.access_token){
     openAccountModal();
