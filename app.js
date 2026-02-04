@@ -4,14 +4,7 @@ const APP_VERSION = 'v15';
 */
 const $ = (q) => document.querySelector(q);
 
-// API base autodetect: "/api" (with redirect) or "/.netlify/functions" (direct)
-let API_BASE = "/api";
-function apiEndpoint(name){
-  name = String(name||"").replace(/^\/+/, "");
-  return `${API_BASE}/${name}`;
-}
-
-// --- Reading highlight styles (restore word shadow while TTS plays) ---
+// --- Reading highlight styles (shadow/glow while TTS plays) ---
 function injectReadingStyles(){
   try{
     if(document.getElementById("labx-reading-style")) return;
@@ -19,19 +12,31 @@ function injectReadingStyles(){
     style.id = "labx-reading-style";
     style.textContent = `
       .word.is-reading{
-        text-shadow: 0 0 10px rgba(0,0,0,.85), 0 0 18px rgba(0,170,255,.55);
-        transition: text-shadow .12s ease, transform .12s ease;
-        transform: translateZ(0);
+        text-shadow: 0 0 12px rgba(0,0,0,.9), 0 0 26px rgba(0,170,255,.80);
+        background: rgba(0,170,255,.14);
+        box-shadow: 0 0 14px rgba(0,170,255,.25);
+        border-radius: 10px;
+        padding: 0 2px;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+        transition: text-shadow .12s ease, background .12s ease, box-shadow .12s ease;
       }
       .word.is-reading.is-selected{
-        text-shadow: 0 0 12px rgba(0,0,0,.9), 0 0 22px rgba(255,210,0,.55);
+        text-shadow: 0 0 12px rgba(0,0,0,.92), 0 0 26px rgba(255,210,0,.75);
+        background: rgba(255,210,0,.14);
+        box-shadow: 0 0 14px rgba(255,210,0,.25);
       }
     `;
     document.head.appendChild(style);
   }catch(_){}
 }
 
-
+// API base autodetect: "/api" (with redirect) or "/.netlify/functions" (direct)
+let API_BASE = "/api";
+function apiEndpoint(name){
+  name = String(name||"").replace(/^\/+/, "");
+  return `${API_BASE}/${name}`;
+}
 
 /* ---------- Public URLs ---------- */
 let PUBLIC_APP_URL = ""; // canonical app origin for auth redirects (set from /api/config)
@@ -106,6 +111,49 @@ const btnSendCode = $("#btnSendCode");
 const otpField = $("#otpField");
 const inpCode = $("#authCode");
 const btnVerifyCode = $("#btnVerifyCode");
+
+// --- Guest-only auth (no email / no magic link) ---
+const GUEST_ONLY_AUTH = true;
+
+function commonParent(a,b){
+  if(!a || !b) return null;
+  const seen = new Set();
+  let x = a;
+  while(x){ seen.add(x); x = x.parentElement; }
+  let y = b;
+  while(y){ if(seen.has(y)) return y; y = y.parentElement; }
+  return null;
+}
+
+function hideMagicLinkUI(){
+  try{
+    // Hide the whole email/login block (input + helper text + buttons)
+    const block = commonParent(authEmailEl, btnSendLink) || authEmailEl?.closest("section, form, .card, .panel, div");
+    if(block) block.style.display = "none";
+
+    // Also hide OTP/code elements if present
+    [authEmailEl, btnSendLink, btnSendCode, otpField, inpCode, btnVerifyCode].forEach(el=>{
+      if(el) el.style.display = "none";
+    });
+  }catch(_){}
+}
+
+async function ensureAnonymousSession(){
+  if(!supabaseClient) return null;
+  try{
+    const { data } = await supabaseClient.auth.getSession();
+    if(data?.session?.access_token) return data.session;
+  }catch(_){}
+
+  try{
+    const { data, error } = await supabaseClient.auth.signInAnonymously();
+    if(error) throw error;
+    return data?.session || null;
+  }catch(e){
+    showAuthMsg("⚠️ No pude iniciar como Invitado. Activa Anonymous Auth en Supabase (Authentication → Providers → Anonymous).");
+    return null;
+  }
+}
 const btnLogout = $("#btnLogout");
 const btnSubscribe = $("#btnSubscribe");
 const btnManage = $("#btnManage");
@@ -145,20 +193,6 @@ function showOtpUI(show){
 function showAuthMsg(text){
   if(authMsg) authMsg.textContent = text || "";
 }
-
-function disableEmailAuthUI(){
-  try{
-    // Hide Magic Link / email OTP UI (users can stay as anonymous guest)
-    if(authEmailEl) authEmailEl.closest("div")?.classList?.add("hidden");
-    if(btnSendLink) btnSendLink.hidden = true;
-    if(btnSendCode) btnSendCode.hidden = true;
-    if(otpField) otpField.hidden = true;
-    if(inpCode) inpCode.hidden = true;
-    if(btnVerifyCode) btnVerifyCode.hidden = true;
-  }catch(_){}
-}
-
-
 function showBillingMsg(text){
   if(billingMsg) billingMsg.textContent = text || "";
 }
@@ -243,8 +277,8 @@ function authHeaders(){
 
 async function fetchConfig(){
   const candidates = [
-    { base:"/.netlify/functions", url:"/.netlify/functions/config" },
-    { base:"/api", url:"/api/config" }
+    { base:"/api", url:"/api/config" },
+    { base:"/.netlify/functions", url:"/.netlify/functions/config" }
   ];
   for(const c of candidates){
     try{
@@ -405,38 +439,21 @@ authSession = data?.session || null;
       }
     }
 
-    disableEmailAuthUI();
-  injectReadingStyles();
-  await ensureAnonymousSession();
-  await ensureProfile().catch(()=>{});
+    await ensureProfile().catch(()=>{});
     await refreshMe().catch(()=>{});
     renderAccountUI();
+  if(GUEST_ONLY_AUTH){
+    hideMagicLinkUI();
+    injectReadingStyles();
+    const s = await ensureAnonymousSession();
+    if(s?.access_token) authSession = s;
+  }
+
   });
 
   await ensureProfile().catch(()=>{});
   await refreshMe().catch(()=>{});
   renderAccountUI();
-}
-
-
-async function ensureAnonymousSession(){
-  if(!supabaseClient) return;
-  try{
-    const { data } = await supabaseClient.auth.getSession();
-    authSession = data?.session || null;
-    if(authSession?.access_token) return;
-    // Supabase anonymous auth (must be enabled in Supabase Auth settings)
-    if(typeof supabaseClient.auth.signInAnonymously === "function"){
-      const { data: d, error } = await supabaseClient.auth.signInAnonymously();
-      if(error) throw error;
-      authSession = d?.session || null;
-      showAuthMsg(""); // clear
-      return;
-    }
-    showAuthMsg("⚠️ Esta app requiere Anonymous Auth en Supabase para usar PRO sin correo. Actívalo en Supabase → Auth.");
-  }catch(err){
-    showAuthMsg("⚠️ No se pudo iniciar como invitado. Activa Anonymous Auth en Supabase o recarga la app.");
-  }
 }
 
 async function ensureProfile(){
@@ -487,6 +504,8 @@ async function refreshMe(){
 }
 
 function renderAccountUI(){
+  if(GUEST_ONLY_AUTH){ hideMagicLinkUI(); }
+
   const email = meState?.email || "Invitado";
   if(accountEmailEl) accountEmailEl.textContent = email;
   const loggedIn = !!authSession?.access_token;
@@ -575,7 +594,10 @@ if(btnSendLink){
       // prevent double-click spam
       btnSendLink.disabled = true;
       const redirectTo = (PUBLIC_APP_URL || window.location.origin).replace(/\/$/, "");
-      showAuthMsg("✅ Ya no usamos correo para entrar. Estás en modo invitado automáticamente.");
+      const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
+      if(error) throw error;
+      beginOtpCooldown();
+      showAuthMsg("✅ Listo. Revisa tu correo y abre el link para entrar.");
     }catch(err){
       const msg = (err?.message || "No se pudo enviar el link.");
       const isRate = /rate\s*limit/i.test(msg);
@@ -602,9 +624,16 @@ if(btnLogout){
 }
 
 async function startCheckout(){
+  // Guest checkout: if no session, create an anonymous session automatically.
+  if(!authSession?.access_token){
+    if(GUEST_ONLY_AUTH){
+      const s = await ensureAnonymousSession();
+      if(s?.access_token) authSession = s;
+    }
+  }
   if(!authSession?.access_token){
     openAccountModal();
-    showAuthMsg("Entra con tu email para poder suscribirte.");
+    showAuthMsg("No hay sesión activa. Intenta de nuevo.");
     return;
   }
   showBillingMsg("Abriendo checkout…");
@@ -1007,6 +1036,8 @@ const sheetBody = $("#sheetBody");
 const sheetSave = $("#sheetSave");
 
 let selectedWordInfo = null;
+let selectedWordEl = null;
+
 
 function openSheet(){
   sheet.classList.add("is-open");
@@ -1224,10 +1255,11 @@ u.onboundary = (e) => {
 
 // Timeline tick stays as fallback (some voices don't emit boundaries reliably).
 
+    let timer = null;
     const cleanup = () => {
       stopTick();
       stopLogoReact();
-      if(timer){ window.clearInterval(timer); timer = null; }
+      if(typeof timer !== 'undefined' && timer){ window.clearInterval(timer); timer = null; }
       if(activeSpeech?.container === container){
         clearReadingUI(container);
         activeSpeech = null;
@@ -1320,6 +1352,7 @@ document.body.addEventListener("click", async (e) => {
 
   clearSelectedUI();
   el.classList.add("is-selected");
+  selectedWordEl = el;
 
   const w = (el.dataset.word || el.textContent || "").trim();
   if(!w) return;
@@ -1481,7 +1514,18 @@ function setWordPanel(info){
   btnSpeakWord.onclick = () => speak(info.word);
   btnQuizWord.disabled = false;
 }
-btnSpeakWord.addEventListener("click", () => { if(lastWordPanel) speak(lastWordPanel.word); });
+btnSpeakWord.addEventListener("click", () => {
+  if(!lastWordPanel) return;
+  // Highlight the selected word while speaking (even when speaking a single word)
+  try{
+    const el = selectedWordEl || document.querySelector(".word.is-selected");
+    if(el){
+      el.classList.add("is-reading");
+      setTimeout(()=>{ try{ el.classList.remove("is-reading"); }catch(_){ } }, 2500);
+    }
+  }catch(_){ }
+  speak(lastWordPanel.word);
+});
 
 btnQuizWord.addEventListener("click", async () => {
   if(!lastWordPanel) return;
