@@ -1,3 +1,4 @@
+window.__APP_BUILD__="fixed16"; console.log("APP BUILD fixed16");
 const APP_VERSION = 'v16';
 /* ARGUS SPEAK LAB-X — Article + AI Prototype
    Client calls /api/ai (Netlify function) to keep OpenAI key secret.
@@ -110,6 +111,52 @@ const btnManage = $("#btnManage");
 const billingMsg = $("#billingMsg");
 const authMsg = $("#authMsg");
 
+// UI hardening for OTP (PWA-friendly)
+function patchOtpUi(){
+  try{
+    // Hide magic-link UI (we use OTP code inside the app)
+    if(btnSendLink) btnSendLink.style.display = "none";
+
+    // Replace/hide any visible text that mentions magic link / 6-digit label
+    const root = accountModal || document;
+    root.querySelectorAll("*").forEach(el=>{
+      const tx = (el.textContent||"");
+      if(/link m[aá]gico/i.test(tx)){
+        if(el.children.length === 0) el.style.display = "none";
+      }
+      if(/C[oó]digo\s*\(\s*6\s*d[ií]gitos\s*\)/i.test(tx)){
+        el.textContent = tx.replace(/6\s*d[ií]gitos/i, "6–8 dígitos");
+      }
+    });
+
+    // Ensure code input accepts 8 digits (or more)
+    if(inpCode){
+      inpCode.type = "text";
+      inpCode.inputMode = "numeric";
+      inpCode.autocomplete = "one-time-code";
+      inpCode.maxLength = 12;
+      inpCode.setAttribute("maxlength","12");
+      inpCode.removeAttribute("pattern");
+      inpCode.placeholder = "Ej: 78781772";
+      inpCode.addEventListener("input", ()=>{
+        const clean = String(inpCode.value||"").replace(/\D/g,"").slice(0,12);
+        if(inpCode.value !== clean) inpCode.value = clean;
+      });
+    }
+  }catch(_){}
+}
+
+// Re-apply OTP patch if the account modal content changes (PWA caches sometimes render later)
+try{
+  if(typeof MutationObserver !== "undefined" && (accountModal || document.getElementById("accountModal"))){
+    const target = accountModal || document.getElementById("accountModal");
+    const obs = new MutationObserver(()=>{ try{ patchOtpUi(); }catch(_){ } });
+    obs.observe(target, { childList:true, subtree:true, characterData:true });
+  }
+}catch(_){}
+
+
+
 // Prevent users from hammering the "Send link" button (Supabase has rate limits).
 // This is a local cooldown; Supabase still enforces its own limits, but this avoids accidental spam clicks.
 const OTP_COOLDOWN_MS = 60_000; // 60s
@@ -168,8 +215,8 @@ if(btnVerifyCode){
       showAuthMsg("⚠️ Email inválido.");
       return;
     }
-    if(!/^\d{6,8}$/.test(token)){
-      showAuthMsg("⚠️ Escribe el código de 6 dígitos.");
+    if(!/^\d{6,12}$/.test(token)){
+      showAuthMsg("⚠️ Escribe el código completo (6–8 dígitos). ");
       return;
     }
     showAuthMsg("Verificando…");
@@ -1825,4 +1872,11 @@ if(btnCheckAI){
     }
   });
 }
+
+
+try{ patchOtpUi(); }catch(_){ }
+
+
+document.addEventListener("DOMContentLoaded", () => { try{ patchOtpUi(); }catch(_){ } });
+
 
