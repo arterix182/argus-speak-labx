@@ -1,12 +1,11 @@
-/* AUTO-GUARD BOOTSTRAP — fixed18
+/* AUTO-GUARD BOOTSTRAP — fixed20
    Ensures app.js runs after DOM is ready (prevents null listeners / dead buttons).
 */
 (() => {
-  window.__APP_BUILD__ = "fixed19";
+  window.__APP_BUILD__ = "fixed20";
   const __boot = () => {
     try {
-      console.log("APP BUILD fixed18");
-      const APP_VERSION = "v19";
+const APP_VERSION = 'v20';
       /* ARGUS SPEAK LAB-X — Article + AI Prototype
          Client calls /api/ai (Netlify function) to keep OpenAI key secret.
       */
@@ -97,6 +96,101 @@
         });
         return { show };
       })();
+
+      
+      // --- Account modal HARD FIX (avoids "blur screen only" when DOM is missing/empty)
+      function ensureAccountDom(){
+        try{
+          // Backdrop
+          let bd = document.getElementById("accountBackdrop");
+          if(!bd){
+            bd = document.createElement("div");
+            bd.id = "accountBackdrop";
+            bd.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:9998;display:none;";
+            document.body.appendChild(bd);
+          }else{
+            bd.style.zIndex = "9998";
+          }
+
+          // Modal container
+          let modal = document.getElementById("accountModal");
+          if(!modal){
+            modal = document.createElement("div");
+            modal.id = "accountModal";
+            modal.hidden = true;
+            document.body.appendChild(modal);
+          }
+
+          // Ensure modal styling is always on top and visible when opened
+          modal.style.cssText = "position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;padding:18px;";
+          modal.style.pointerEvents = "auto";
+
+          // If modal has no UI (or missing key inputs), inject a safe UI
+          const hasEmail = modal.querySelector("#authEmail");
+          const hasCode  = modal.querySelector("#authCode");
+          if(!hasEmail || !hasCode || !modal.innerHTML.trim()){
+            modal.innerHTML = `
+              <div style="width:min(720px,92vw);max-height:88vh;overflow:auto;background:rgba(12,16,28,.92);border:1px solid rgba(255,255,255,.12);border-radius:20px;box-shadow:0 24px 90px rgba(0,0,0,.6);padding:18px;color:#eaf2ff;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+                  <div>
+                    <div style="font-size:24px;font-weight:900;letter-spacing:.2px;">Cuenta & Suscripción</div>
+                    <div style="opacity:.8;margin-top:4px;" id="accountEmail">Invitado</div>
+                  </div>
+                  <button id="btnAccountClose" type="button" style="width:42px;height:42px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;font-size:18px;cursor:pointer;">✕</button>
+                </div>
+
+                <div style="margin-top:14px;">
+                  <div style="font-weight:800;margin-bottom:6px;">Email</div>
+                  <input id="authEmail" type="email" placeholder="tu@correo.com" style="width:100%;padding:14px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.22);color:#fff;outline:none;" />
+                  <div style="opacity:.8;margin-top:8px;">Te mandamos un <b>código</b> para entrar (sin salir de la app).</div>
+                </div>
+
+                <div style="margin-top:12px;">
+                  <div style="font-weight:800;margin-bottom:6px;">Código (6–12 dígitos)</div>
+                  <input id="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Ej: 78781772" style="width:100%;padding:14px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.22);color:#fff;outline:none;letter-spacing:2px;font-size:18px;" />
+                </div>
+
+                <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+                  <button id="btnSendCode" type="button" style="padding:12px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;cursor:pointer;font-weight:800;">Enviar código</button>
+                  <button id="btnVerifyCode" type="button" style="padding:12px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(79,156,255,.22);color:#fff;cursor:pointer;font-weight:900;">Verificar</button>
+                  <button id="btnLogout" type="button" style="padding:12px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(255,120,120,.10);color:#fff;cursor:pointer;font-weight:800;display:none;">Salir</button>
+                </div>
+
+                <div id="authMsg" style="margin-top:10px;color:#ffb;min-height:18px;"></div>
+
+                <div style="margin-top:14px;border-top:1px solid rgba(255,255,255,.10);padding-top:14px;">
+                  <div style="font-size:18px;font-weight:900;">Plan PRO</div>
+                  <div style="opacity:.85;margin-top:4px;">Desbloquea IA y herramientas premium. Cancela cuando quieras.</div>
+                  <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
+                    <button id="btnSubscribe" type="button" style="padding:12px 18px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(79,156,255,.22);color:#fff;cursor:pointer;font-weight:900;">Suscribirme</button>
+                    <button id="btnManage" type="button" style="padding:12px 18px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;cursor:pointer;font-weight:800;display:none;">Administrar</button>
+                  </div>
+                  <div id="billingMsg" style="margin-top:10px;color:#fbb;min-height:18px;"></div>
+                </div>
+
+                <div style="margin-top:14px;">
+                  <button id="btnResetApp" type="button" style="padding:12px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:#fff;cursor:pointer;font-weight:800;">Reset app (caché)</button>
+                </div>
+              </div>
+            `;
+          }
+
+          // Close wiring (always)
+          const closeBtn = modal.querySelector("#btnAccountClose");
+          if(closeBtn && !closeBtn.__wired){
+            closeBtn.__wired = true;
+            closeBtn.addEventListener("click", ()=>{ try{ closeAccountModal(); }catch(_){} });
+          }
+          if(bd && !bd.__wired){
+            bd.__wired = true;
+            bd.addEventListener("click", ()=>{ try{ closeAccountModal(); }catch(_){} });
+          }
+        }catch(_){}
+      }
+
+      // Auto-recover if something throws while modal is open (prevents "stuck blur")
+      window.addEventListener("error", ()=>{ try{ closeAccountModal(); }catch(_){} });
+      window.addEventListener("unhandledrejection", ()=>{ try{ closeAccountModal(); }catch(_){} });
 
       /* ---------- Auth + Subscription (Supabase + Stripe) ---------- */
       const planPill = $("#planPill");
@@ -280,29 +374,31 @@
       }
 
       function openAccountModal(){
-        if(!accountModal) return;
-        accountModal.hidden = false;
-        if(accountBackdrop) accountBackdrop.hidden = false;
-        accountModal.style.display = "block";
-        accountModal.style.opacity = "1";
-        accountModal.style.visibility = "visible";
-        accountModal.style.zIndex = "9999";
-        if(accountBackdrop){ accountBackdrop.style.display="block"; accountBackdrop.style.zIndex="9998"; }
+        try{ ensureAccountDom(); }catch(_){}
+        const modal = document.getElementById("accountModal");
+        const bd = document.getElementById("accountBackdrop");
+        if(!modal) return;
+        modal.hidden = false;
+        modal.style.display = "flex";
+        if(bd) bd.style.display = "block";
         document.body.style.overflow = "hidden";
+        try{ patchOtpUi(); }catch(_){}
         showAuthMsg("");
         showBillingMsg("");
-        // refresh status when opening
         refreshMe().catch(()=>{});
       }
       function closeAccountModal(){
-        if(!accountModal) return;
-        accountModal.hidden = true;
-        if(accountBackdrop) accountBackdrop.hidden = true;
+        const modal = document.getElementById("accountModal");
+        const bd = document.getElementById("accountBackdrop");
+        if(modal){
+          modal.hidden = true;
+          modal.style.display = "none";
+        }
+        if(bd) bd.style.display = "none";
         document.body.style.overflow = "";
       }
 
-
-      // --- Hard auth cleanup: remove any Supabase tokens from storage (fixes 'valid issuer' across reused devices/browsers)
+// --- Hard auth cleanup: remove any Supabase tokens from storage (fixes 'valid issuer' across reused devices/browsers)
       function clearSupabaseStorage(){
         const kill = (store) => {
           try{
