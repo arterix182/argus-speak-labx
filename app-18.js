@@ -5,8 +5,8 @@
   window.__APP_BUILD__ = "fixed18";
   const __boot = () => {
     try {
-      window.__APP_BUILD__="fixed16"; console.log("APP BUILD fixed16");
-      const APP_VERSION = 'v16';
+      console.log("APP BUILD fixed18");
+      const APP_VERSION = 'v18';
       /* ARGUS SPEAK LAB-X — Article + AI Prototype
          Client calls /api/ai (Netlify function) to keep OpenAI key secret.
       */
