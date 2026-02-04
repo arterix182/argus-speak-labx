@@ -6,7 +6,7 @@
 // - Requires Supabase session
 // - Daily limits: FREE=1/day, PRO=50/day (configurable)
 // - Subscription status in `profiles` selects PRO vs FREE
-
+console.log("SUPABASE_URL (ai) =", process.env.SUPABASE_URL);
 async function getSupabaseUser(req){
   const supabaseUrl = process.env.SUPABASE_URL;
   const anonKey = process.env.SUPABASE_ANON_KEY;
