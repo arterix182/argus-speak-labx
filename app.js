@@ -937,6 +937,7 @@ function tokenizeToSpans(text){
 
 /* ---------- Demo text ---------- */
 const demoTextEl = $("#demoText");
+applyTextShadow(demoTextEl);
 const demoText = `Hello my name is ARGUS, My day at work starts early. I review tasks, solve problems, and help my team move faster. At the end, I reflect on what improved — and what still needs work.`;
 if(demoTextEl) demoTextEl.appendChild(tokenizeToSpans(demoText));
 
@@ -1358,6 +1359,16 @@ sheetSave.addEventListener("click", () => {
 /* ---------- Article view ---------- */
 const articleInput = $("#articleInput");
 const articleRendered = $("#articleRendered");
+
+// --- Text shadow baseline (keeps the "glow/shadow" visible even when not speaking) ---
+const DEFAULT_TEXT_SHADOW = '0 0 10px rgba(0,0,0,0.65), 0 0 18px rgba(0,255,255,0.18)';
+function applyTextShadow(el){
+  if(!el) return;
+  // Don't override if something else already set an inline shadow
+  if(!el.style.textShadow) el.style.textShadow = DEFAULT_TEXT_SHADOW;
+}
+applyTextShadow(articleRendered);
+
 let lastWordPanel = null;
 
 $("#btnRenderArticle").addEventListener("click", () => {
@@ -1755,3 +1766,4 @@ if(btnCheckAI){
     }
   });
 }
+
