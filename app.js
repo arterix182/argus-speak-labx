@@ -1,5 +1,35 @@
-window.__APP_BUILD__="fixed16"; console.log("APP BUILD fixed16");
 const APP_VERSION = 'v16';
+
+// --- Auto hard-refresh when upgrading builds (PWA/ServiceWorker cache is stubborn) ---
+(async function maybeNukeSwOnUpgrade(){
+  try{
+    const BUILD = window.__APP_BUILD__ || "unknown";
+    const key = "labx_build";
+    const prev = localStorage.getItem(key);
+    if(prev !== BUILD){
+      localStorage.setItem(key, BUILD);
+      // If there is a SW controller, it's very likely serving stale JS/HTML.
+      if("serviceWorker" in navigator && navigator.serviceWorker.controller){
+        if(!sessionStorage.getItem("labx_sw_nuked")){
+          sessionStorage.setItem("labx_sw_nuked", "1");
+          try{
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+          }catch(_){}
+          try{
+            if("caches" in window){
+              const ks = await caches.keys();
+              await Promise.all(ks.map(k => caches.delete(k)));
+            }
+          }catch(_){}
+          // Hard reload
+          location.replace(location.href.split("#")[0] + (location.search ? "&" : "?") + "v=" + BUILD + location.hash);
+          return;
+        }
+      }
+    }
+  }catch(_){}
+})();
 /* ARGUS SPEAK LAB-X — Article + AI Prototype
    Client calls /api/ai (Netlify function) to keep OpenAI key secret.
 */
@@ -119,6 +149,19 @@ function patchOtpUi(){
 
     // Replace/hide any visible text that mentions magic link / 6-digit label
     const root = accountModal || document;
+    // Force the OTP input to accept 6–8+ digits (Supabase can send 8)
+    try{
+      const codeEl = root.querySelector("#authCode");
+      if(codeEl){
+        codeEl.removeAttribute("maxlength");
+        codeEl.removeAttribute("maxLength");
+        codeEl.removeAttribute("pattern");
+        codeEl.setAttribute("inputmode","numeric");
+        codeEl.setAttribute("autocomplete","one-time-code");
+        codeEl.placeholder = "Ej: 78781772";
+      }
+    }catch(_){}
+
     root.querySelectorAll("*").forEach(el=>{
       const tx = (el.textContent||"");
       if(/link m[aá]gico/i.test(tx)){
@@ -145,16 +188,6 @@ function patchOtpUi(){
     }
   }catch(_){}
 }
-
-// Re-apply OTP patch if the account modal content changes (PWA caches sometimes render later)
-try{
-  if(typeof MutationObserver !== "undefined" && (accountModal || document.getElementById("accountModal"))){
-    const target = accountModal || document.getElementById("accountModal");
-    const obs = new MutationObserver(()=>{ try{ patchOtpUi(); }catch(_){ } });
-    obs.observe(target, { childList:true, subtree:true, characterData:true });
-  }
-}catch(_){}
-
 
 
 // Prevent users from hammering the "Send link" button (Supabase has rate limits).
@@ -273,13 +306,90 @@ function showBillingMsg(text){
 }
 
 function openAccountModal(){
-  if(!accountModal) return;
-  accountModal.hidden = false;
-  document.body.style.overflow = "hidden";
-  showAuthMsg("");
-  showBillingMsg("");
-  // refresh status when opening
-  refreshMe().catch(()=>{});
+  // Some installs serve an older HTML shell; don't die—render a minimal account UI if needed.
+  if(!accountModal){
+    console.warn("accountModal missing");
+    return;
+  }
+  try{
+    accountModal.hidden = false;
+    accountModal.classList.add("open");
+    accountModal.style.display = "";
+    accountModal.style.visibility = "visible";
+    accountModal.style.opacity = "1";
+    document.body.style.overflow = "hidden";
+
+    // Unhide any nested hidden panels (some templates wrap content in [hidden])
+    accountModal.querySelectorAll("[hidden]").forEach(el => { try{ el.hidden = false; }catch(_){} });
+    accountModal.querySelectorAll("*").forEach(el => {
+      // If some element got accidentally display:none via old CSS, bring it back unless it's intentionally hidden
+      if(el.style && el.style.display === "none" && !el.hasAttribute("data-keep-hidden")){
+        el.style.display = "";
+      }
+    });
+
+    // If modal content is empty for some reason, inject a minimal UI so user isn't stuck.
+    const hasEmail = accountModal.querySelector("#authEmail");
+    const hasCode = accountModal.querySelector("#authCode");
+    const hasButtons = accountModal.querySelector("#btnSendCode") || accountModal.querySelector("#btnVerifyCode");
+    if(!hasEmail || !hasCode || !hasButtons){
+      if(!accountModal.querySelector("#labxInjectedAccount")){
+        const wrap = document.createElement("div");
+        wrap.id = "labxInjectedAccount";
+        wrap.style.position = "fixed";
+        wrap.style.inset = "0";
+        wrap.style.zIndex = "9999";
+        wrap.style.background = "rgba(0,0,0,.55)";
+        wrap.style.display = "flex";
+        wrap.style.alignItems = "center";
+        wrap.style.justifyContent = "center";
+        wrap.innerHTML = `
+          <div style="width:min(520px,92vw);background:#0b1220;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:18px 18px 14px;box-shadow:0 24px 60px rgba(0,0,0,.55);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <div style="font-size:18px;font-weight:800;color:#eaf2ff;">Cuenta & Suscripción</div>
+              <button id="labxCloseInjected" style="border:0;background:transparent;color:#eaf2ff;font-size:18px;cursor:pointer;">✕</button>
+            </div>
+            <div style="color:rgba(234,242,255,.72);font-size:12px;margin-bottom:12px;">Entra con tu email usando código (sin links).</div>
+
+            <div style="color:#eaf2ff;font-size:12px;font-weight:700;margin:6px 0;">Email</div>
+            <input id="authEmail" type="email" autocomplete="email" style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#eaf2ff;outline:none" />
+
+            <div style="display:flex;gap:10px;align-items:end;margin-top:10px;">
+              <div style="flex:1;">
+                <div style="color:#eaf2ff;font-size:12px;font-weight:700;margin:6px 0;">Código (6–8 dígitos)</div>
+                <input id="authCode" inputmode="numeric" autocomplete="one-time-code" style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#eaf2ff;outline:none" />
+              </div>
+              <button id="btnSendCode" style="padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#eaf2ff;cursor:pointer;">Enviar código</button>
+              <button id="btnVerifyCode" style="padding:12px 14px;border-radius:12px;border:1px solid rgba(0,210,255,.35);background:rgba(0,210,255,.14);color:#eaf2ff;cursor:pointer;">Verificar</button>
+            </div>
+
+            <div id="authMsg" style="margin-top:10px;color:#ffb6b6;font-size:12px;min-height:18px;"></div>
+
+            <div style="margin-top:14px;border-top:1px solid rgba(255,255,255,.10);padding-top:12px;">
+              <div style="color:#eaf2ff;font-weight:800;">Plan PRO</div>
+              <div style="color:rgba(234,242,255,.70);font-size:12px;margin-top:2px;">Desbloquea IA y herramientas premium.</div>
+              <button id="btnSubscribe" style="margin-top:10px;padding:12px 14px;border-radius:12px;border:1px solid rgba(0,210,255,.35);background:rgba(0,210,255,.14);color:#eaf2ff;cursor:pointer;">Suscribirme</button>
+              <div id="billingMsg" style="margin-top:10px;color:rgba(234,242,255,.72);font-size:12px;min-height:18px;"></div>
+              <button id="btnHardReset" style="margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#eaf2ff;cursor:pointer;">Reset app (caché total)</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(wrap);
+        const close = () => { try{ wrap.remove(); }catch(_){} closeAccountModal(); };
+        wrap.querySelector("#labxCloseInjected")?.addEventListener("click", close);
+        wrap.addEventListener("click", (e)=>{ if(e.target === wrap) close(); });
+        // Hook injected elements to existing handlers by syncing globals
+        // (the rest of the script uses these IDs via querySelector)
+      }
+    }
+
+    showAuthMsg("");
+    showBillingMsg("");
+    patchOtpUi(); // ensure code length & hide magic link
+    refreshMe().catch(()=>{});
+  }catch(err){
+    console.error(err);
+  }
 }
 function closeAccountModal(){
   if(!accountModal) return;
@@ -309,7 +419,7 @@ function clearSupabaseStorage(){
 
 // Reset PWA cache (useful when a Service Worker got stuck)
 const btnResetApp = $("#btnResetApp");
-async function hardResetApp(){
+async async function hardResetApp(){
   try{ clearSupabaseStorage(); }catch(_){ }
   try{
     try{ stopSpeech(); }catch{}
@@ -1875,6 +1985,9 @@ if(btnCheckAI){
 
 
 try{ patchOtpUi(); }catch(_){ }
+
+
+document.addEventListener("DOMContentLoaded", () => { try{ patchOtpUi(); }catch(_){ }
 
 
 document.addEventListener("DOMContentLoaded", () => { try{ patchOtpUi(); }catch(_){ } });
