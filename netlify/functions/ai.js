@@ -6,11 +6,7 @@
 // - Requires Supabase session
 // - Daily limits: FREE=1/day, PRO=50/day (configurable)
 // - Subscription status in `profiles` selects PRO vs FREE
-const allowed = ["https://app.arguslab2x.com"];
-const origin = req.headers.get("origin") || "";
-if (!allowed.includes(origin)) {
-  return new Response(JSON.stringify({ error: "Forbidden origin" }), { status: 403 });
-}
+
 
 
 console.log("SUPABASE_URL (ai) =", process.env.SUPABASE_URL);
