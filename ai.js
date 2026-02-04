@@ -5,6 +5,7 @@
 // PRO Paywall:
 // - Requires Supabase session (Authorization: Bearer <access_token>)
 // - Requires active/trialing subscription in `profiles`
+console.log("SUPABASE_URL (ai) =", process.env.SUPABASE_URL);
 
 async function getSupabaseUser(req){
   const supabaseUrl = process.env.SUPABASE_URL;
