@@ -1,9 +1,9 @@
-const CACHE = "argus-speak-labx-v14";
+const CACHE_NAME = "argus-cache-v18";
 const CORE = [
   "./",
   "./index.html",
   "./styles.css",
-  "./app.js",
+  "./app-18.js",
   "./manifest.json",
   "./sw.js",
   "./assets/icon-192.png",
