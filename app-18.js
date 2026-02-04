@@ -2,11 +2,11 @@
    Ensures app.js runs after DOM is ready (prevents null listeners / dead buttons).
 */
 (() => {
-  window.__APP_BUILD__ = "fixed18";
+  window.__APP_BUILD__ = "fixed19";
   const __boot = () => {
     try {
       console.log("APP BUILD fixed18");
-      const APP_VERSION = 'v18';
+      const APP_VERSION = "v19";
       /* ARGUS SPEAK LAB-X — Article + AI Prototype
          Client calls /api/ai (Netlify function) to keep OpenAI key secret.
       */
@@ -282,6 +282,12 @@
       function openAccountModal(){
         if(!accountModal) return;
         accountModal.hidden = false;
+        if(accountBackdrop) accountBackdrop.hidden = false;
+        accountModal.style.display = "block";
+        accountModal.style.opacity = "1";
+        accountModal.style.visibility = "visible";
+        accountModal.style.zIndex = "9999";
+        if(accountBackdrop){ accountBackdrop.style.display="block"; accountBackdrop.style.zIndex="9998"; }
         document.body.style.overflow = "hidden";
         showAuthMsg("");
         showBillingMsg("");
@@ -291,6 +297,7 @@
       function closeAccountModal(){
         if(!accountModal) return;
         accountModal.hidden = true;
+        if(accountBackdrop) accountBackdrop.hidden = true;
         document.body.style.overflow = "";
       }
 
