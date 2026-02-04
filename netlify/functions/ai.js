@@ -1,4 +1,23 @@
 // Netlify Function: /api/ai
+
+// --- Helpers (safe diagnostics, no secrets) ---
+function b64urlDecode(str){
+  str = (str||"").replace(/-/g, "+").replace(/_/g, "/");
+  while (str.length % 4) str += "=";
+  try { return Buffer.from(str, "base64").toString("utf8"); } catch { return ""; }
+}
+function decodeJwtPayload(token){
+  try{
+    const p = (token||"").split(".")[1];
+    if(!p) return null;
+    return JSON.parse(b64urlDecode(p));
+  }catch{
+    return null;
+  }
+}
+function refFromUrl(u){
+  try{ return new URL(u).hostname.split(".")[0] || null; }catch{ return null; }
+}
 // Keep OPENAI_API_KEY on the server (Environment Variables).
 // Calls OpenAI Responses API: https://api.openai.com/v1/responses
 //
@@ -7,53 +26,10 @@
 // - Daily limits: FREE=1/day, PRO=50/day (configurable)
 // - Subscription status in `profiles` selects PRO vs FREE
 console.log("SUPABASE_URL (ai) =", process.env.SUPABASE_URL);
-// ---- Env helpers (support both SUPABASE_* and VITE_SUPABASE_* names) ----
-function envAny(names){
-  for(const n of names){
-    const v = process.env[n];
-    if(typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "";
-}
-function supabaseConfig(){
-  const supabaseUrl = envAny(["SUPABASE_URL","VITE_SUPABASE_URL"]);
-  const anonKey = envAny(["SUPABASE_ANON_KEY","VITE_SUPABASE_ANON_KEY"]);
-  // service role may be stored under either name; keep both for backward compat
-  const serviceKey = envAny([
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "SUPABASE_SERVICE_ROLE",
-    "VITE_SUPABASE_SERVICE_ROLE_KEY",
-    "VITE_SUPABASE_SERVICE_ROLE"
-  ]);
-  const cleanUrl = supabaseUrl.replace(/\/$/, "");
-  const expectedIssuer = cleanUrl ? `${cleanUrl}/auth/v1` : "";
-  return { supabaseUrl: cleanUrl, anonKey, serviceKey, expectedIssuer };
-}
-function b64urlToJson(part){
-  try{
-    const b64 = part.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((part.length + 3) % 4);
-    return JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
-  }catch(_){
-    return null;
-  }
-}
-function tokenIssuer(token){
-  const p = token?.split?.(".")?.[1];
-  const obj = p ? b64urlToJson(p) : null;
-  return obj?.iss || "";
-}
-function issuerRef(iss){
-  try{
-    const u = new URL(iss);
-    return u.hostname.split(".")[0] || "";
-  }catch(_){
-    return "";
-  }
-}
-
 async function getSupabaseUser(req){
-  const { supabaseUrl, anonKey, expectedIssuer } = supabaseConfig();
-  if(!supabaseUrl || !anonKey) return { error:"Missing SUPABASE_URL / SUPABASE_ANON_KEY (or VITE_SUPABASE_*)", status:500 };
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if(!supabaseUrl || !anonKey) return { error:"Missing SUPABASE_URL / SUPABASE_ANON_KEY (Functions env)", status:500 };
 
   const auth = req.headers.get("authorization") || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
@@ -65,28 +41,23 @@ async function getSupabaseUser(req){
   });
   if(!r.ok){
   const txt = await r.text().catch(()=> "");
-  // Supabase returns issuer errors when the access token was minted by a different project/auth issuer.
-  if(/issuer/i.test(txt) || /valid issuer/i.test(txt) || /invalid issuer/i.test(txt)){
-    const gotIss = tokenIssuer(token);
-    const payload = {
-      error: "issuer_mismatch",
-      expectedIssuer,
-      expectedRef: issuerRef(expectedIssuer),
-      tokenIssuer: gotIss || null,
-      tokenRef: issuerRef(gotIss),
-      detail: txt?.slice?.(0, 300) || ""
-    };
-    // Start with "ISSUER" so the frontend can detect it, then attach JSON details.
-    return { error: "ISSUER " + JSON.stringify(payload), status: 401 };
+  if(/valid issuer/i.test(txt) || /invalid issuer/i.test(txt)){
+    const expectedIssuer = (supabaseUrl||"").replace(/\/$/,"") + "/auth/v1";
+    const tokenPayload = decodeJwtPayload(token);
+    const tokenIss = tokenPayload?.iss || null;
+    const expectedRef = refFromUrl(supabaseUrl);
+    const tokenRef = tokenIss ? refFromUrl(tokenIss) : null;
+    return { error: "ISSUER " + JSON.stringify({ expectedIssuer, tokenIss, expectedRef, tokenRef }), status:401 };
   }
-  return { error: "Sesión inválida. Vuelve a entrar.", status: 401 };
+  return { error:"Sesión inválida. Vuelve a entrar.", status:401 };
 }
   const user = await r.json();
   return { user };
 }
 
 async function getProfileByUserId(userId){
-  const { supabaseUrl, serviceKey: service } = supabaseConfig();
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE;
   if(!supabaseUrl || !service) return null;
 
   const url = `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=subscription_status,subscription_current_period_end`;
@@ -127,9 +98,10 @@ function clampInt(v, fallback){
 }
 
 async function consumeDailyQuota(userId, limit, today){
-  const { supabaseUrl, serviceKey: service } = supabaseConfig();
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
   if(!supabaseUrl || !service){
-    return { error: "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE)", status: 500 };
+    return { error: "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY", status: 500 };
   }
 
   const r = await fetch(`${supabaseUrl}/rest/v1/rpc/consume_ai_quota`, {
@@ -160,7 +132,8 @@ async function consumeDailyQuota(userId, limit, today){
 }
 
 async function refundDailyQuota(userId, today){
-  const { supabaseUrl, serviceKey: service } = supabaseConfig();
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
   if(!supabaseUrl || !service) return;
 
   // Best-effort refund: if OpenAI fails, don't charge the daily counter
