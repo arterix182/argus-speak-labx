@@ -1361,14 +1361,14 @@ const articleInput = $("#articleInput");
 const articleRendered = $("#articleRendered");
 
 // --- Text shadow baseline (keeps the "glow/shadow" visible even when not speaking) ---
-const DEFAULT_TEXT_SHADOW = '0 0 10px rgba(0,0,0,0.65), 0 0 18px rgba(0,255,255,0.18)';
+// NOTE: This helper is safe even if called before this section executes (no TDZ issues).
 function applyTextShadow(el){
   if(!el) return;
+  const DEFAULT_TEXT_SHADOW = '0 0 10px rgba(0,0,0,0.65), 0 0 18px rgba(0,255,255,0.18)';
   // Don't override if something else already set an inline shadow
   if(!el.style.textShadow) el.style.textShadow = DEFAULT_TEXT_SHADOW;
 }
 applyTextShadow(articleRendered);
-
 let lastWordPanel = null;
 
 $("#btnRenderArticle").addEventListener("click", () => {
