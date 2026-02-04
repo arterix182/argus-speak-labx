@@ -1170,8 +1170,7 @@ u.onboundary = (e) => {
     const cleanup = () => {
       stopTick();
       stopLogoReact();
-      if(timer){ window.clearInterval(timer); timer = null; }
-      if(activeSpeech?.container === container){
+if(activeSpeech?.container === container){
         clearReadingUI(container);
         activeSpeech = null;
       }else{
