@@ -168,7 +168,7 @@ if(btnVerifyCode){
       showAuthMsg("⚠️ Email inválido.");
       return;
     }
-    if(!/^\d{6}$/.test(token)){
+    if(!/^\d{6,8}$/.test(token)){
       showAuthMsg("⚠️ Escribe el código de 6 dígitos.");
       return;
     }
