@@ -4,6 +4,22 @@ const APP_VERSION = 'v15';
 */
 const $ = (q) => document.querySelector(q);
 
+// --- Shadow/glow fix (forces readable text shadow even if CSS overrides it) ---
+(function ensureShadowCSS(){
+  try{
+    const id = "argus-shadow-fix";
+    if(document.getElementById(id)) return;
+    const st = document.createElement("style");
+    st.id = id;
+    st.textContent = `
+      /* Baseline shadow for article + demo text (and all tokenized word spans) */
+      #articleRendered, #demoText { text-shadow: 0 0 10px rgba(0,0,0,0.65), 0 0 18px rgba(0,255,255,0.18) !important; }
+      #articleRendered .word, #demoText .word { text-shadow: 0 0 10px rgba(0,0,0,0.65), 0 0 18px rgba(0,255,255,0.18) !important; }
+    `;
+    (document.head || document.documentElement).appendChild(st);
+  }catch(_){}
+})();
+
 // API base autodetect: "/api" (with redirect) or "/.netlify/functions" (direct)
 let API_BASE = "/api";
 function apiEndpoint(name){
@@ -937,6 +953,7 @@ function tokenizeToSpans(text){
 
 /* ---------- Demo text ---------- */
 const demoTextEl = $("#demoText");
+applyTextShadow(demoTextEl);
 const demoText = `Hello my name is ARGUS, My day at work starts early. I review tasks, solve problems, and help my team move faster. At the end, I reflect on what improved — and what still needs work.`;
 if(demoTextEl) demoTextEl.appendChild(tokenizeToSpans(demoText));
 
@@ -1170,8 +1187,7 @@ u.onboundary = (e) => {
     const cleanup = () => {
       stopTick();
       stopLogoReact();
-      if(timer){ window.clearInterval(timer); timer = null; }
-      if(activeSpeech?.container === container){
+if(activeSpeech?.container === container){
         clearReadingUI(container);
         activeSpeech = null;
       }else{
@@ -1211,16 +1227,19 @@ async function callAI(task, payload){
 
   if(!res.ok){
     const t = await res.text().catch(()=> "");
-    // 401/402 -> show account modal to unlock
+    // 401/402/429 -> show account modal to unlock (except issuer mismatch, which is backend config)
     if(res.status === 401 || res.status === 402 || res.status === 429){
-      openAccountModal();
+      if(!(/valid issuer/i.test(t) || /invalid issuer/i.test(t) || /^ISSUER/i.test(t))){
+        openAccountModal();
+      }
     }
-    
     // Issuer mismatch: token belongs to another Supabase project OR backend SUPABASE_URL is different.
-    if(/valid issuer/i.test(t) || /^ISSUER\b/i.test(t)){
-      try{ await supabaseClient?.auth?.signOut(); }catch(_){}
-      try{ clearSupabaseStorage(); }catch(_){}
-      try{ location.reload(); }catch(_){}
+    // IMPORTANT: Do NOT auto sign-out here. This is usually a backend env mismatch (config vs ai function).
+    if(/valid issuer/i.test(t) || /invalid issuer/i.test(t) || /^ISSUER\b/i.test(t)){
+      try{
+        ARGUS_DEBUG.show("⚠️ Issuer mismatch: /api/config y /api/ai parecen apuntar a proyectos distintos de Supabase. Revisa SUPABASE_URL/SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE en Netlify (todas las funciones) y vuelve a desplegar.");
+      }catch(_){}
+      throw new Error("Sesión incompatible con el servidor (issuer). No es tu cuenta: es configuración del backend.");
     }
     throw new Error(t || `AI error (${res.status})`);
   }
@@ -1359,6 +1378,18 @@ sheetSave.addEventListener("click", () => {
 /* ---------- Article view ---------- */
 const articleInput = $("#articleInput");
 const articleRendered = $("#articleRendered");
+
+// --- Text shadow baseline (keeps the "glow/shadow" visible even when not speaking) ---
+// NOTE: This helper is safe even if called before this section executes (no TDZ issues).
+function applyTextShadow(el){
+  if(!el) return;
+  const DEFAULT_TEXT_SHADOW = '0 0 10px rgba(0,0,0,0.65), 0 0 18px rgba(0,255,255,0.18)';
+  try{
+    // Force priority in case CSS sets text-shadow: none !important
+    el.style.setProperty("text-shadow", DEFAULT_TEXT_SHADOW, "important");
+  }catch(_){}
+}
+applyTextShadow(articleRendered);
 let lastWordPanel = null;
 
 $("#btnRenderArticle").addEventListener("click", () => {
