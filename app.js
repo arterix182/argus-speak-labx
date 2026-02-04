@@ -4,33 +4,6 @@ const APP_VERSION = 'v15';
 */
 const $ = (q) => document.querySelector(q);
 
-// --- Reading highlight styles (shadow/glow while TTS plays) ---
-function injectReadingStyles(){
-  try{
-    if(document.getElementById("labx-reading-style")) return;
-    const style = document.createElement("style");
-    style.id = "labx-reading-style";
-    style.textContent = `
-      .word.is-reading{
-        text-shadow: 0 0 12px rgba(0,0,0,.9), 0 0 26px rgba(0,170,255,.80);
-        background: rgba(0,170,255,.14);
-        box-shadow: 0 0 14px rgba(0,170,255,.25);
-        border-radius: 10px;
-        padding: 0 2px;
-        box-decoration-break: clone;
-        -webkit-box-decoration-break: clone;
-        transition: text-shadow .12s ease, background .12s ease, box-shadow .12s ease;
-      }
-      .word.is-reading.is-selected{
-        text-shadow: 0 0 12px rgba(0,0,0,.92), 0 0 26px rgba(255,210,0,.75);
-        background: rgba(255,210,0,.14);
-        box-shadow: 0 0 14px rgba(255,210,0,.25);
-      }
-    `;
-    document.head.appendChild(style);
-  }catch(_){}
-}
-
 // API base autodetect: "/api" (with redirect) or "/.netlify/functions" (direct)
 let API_BASE = "/api";
 function apiEndpoint(name){
@@ -112,47 +85,18 @@ const otpField = $("#otpField");
 const inpCode = $("#authCode");
 const btnVerifyCode = $("#btnVerifyCode");
 
-// --- Guest-only auth (no email / no magic link) ---
-const GUEST_ONLY_AUTH = true;
-
-function commonParent(a,b){
-  if(!a || !b) return null;
-  const seen = new Set();
-  let x = a;
-  while(x){ seen.add(x); x = x.parentElement; }
-  let y = b;
-  while(y){ if(seen.has(y)) return y; y = y.parentElement; }
-  return null;
-}
-
-function hideMagicLinkUI(){
+// --- Auth UX: prefer Email OTP code (no magic-link required) ---
+function hideMagicLinkCopy(){
   try{
-    // Hide the whole email/login block (input + helper text + buttons)
-    const block = commonParent(authEmailEl, btnSendLink) || authEmailEl?.closest("section, form, .card, .panel, div");
-    if(block) block.style.display = "none";
-
-    // Also hide OTP/code elements if present
-    [authEmailEl, btnSendLink, btnSendCode, otpField, inpCode, btnVerifyCode].forEach(el=>{
-      if(el) el.style.display = "none";
+    const modal = document.querySelector("#accountModal") || document.body;
+    modal.querySelectorAll("*").forEach(el=>{
+      const t = (el.textContent||"").toLowerCase();
+      if(t.includes("link mágico") || t.includes("abre el link") || t.includes("sin contraseñas")){
+        // hide helper paragraphs only; keep labels/inputs
+        if(el.tagName === "P" || el.tagName === "SMALL" || el.classList.contains("muted")) el.style.display = "none";
+      }
     });
   }catch(_){}
-}
-
-async function ensureAnonymousSession(){
-  if(!supabaseClient) return null;
-  try{
-    const { data } = await supabaseClient.auth.getSession();
-    if(data?.session?.access_token) return data.session;
-  }catch(_){}
-
-  try{
-    const { data, error } = await supabaseClient.auth.signInAnonymously();
-    if(error) throw error;
-    return data?.session || null;
-  }catch(e){
-    showAuthMsg("⚠️ No pude iniciar como Invitado. Activa Anonymous Auth en Supabase (Authentication → Providers → Anonymous).");
-    return null;
-  }
 }
 const btnLogout = $("#btnLogout");
 const btnSubscribe = $("#btnSubscribe");
@@ -198,6 +142,8 @@ function showBillingMsg(text){
 }
 
 function openAccountModal(){
+  try{ hideMagicLinkCopy(); }catch(_){ }
+
   if(!accountModal) return;
   accountModal.hidden = false;
   document.body.style.overflow = "hidden";
@@ -442,13 +388,6 @@ authSession = data?.session || null;
     await ensureProfile().catch(()=>{});
     await refreshMe().catch(()=>{});
     renderAccountUI();
-  if(GUEST_ONLY_AUTH){
-    hideMagicLinkUI();
-    injectReadingStyles();
-    const s = await ensureAnonymousSession();
-    if(s?.access_token) authSession = s;
-  }
-
   });
 
   await ensureProfile().catch(()=>{});
@@ -504,8 +443,6 @@ async function refreshMe(){
 }
 
 function renderAccountUI(){
-  if(GUEST_ONLY_AUTH){ hideMagicLinkUI(); }
-
   const email = meState?.email || "Invitado";
   if(accountEmailEl) accountEmailEl.textContent = email;
   const loggedIn = !!authSession?.access_token;
@@ -614,6 +551,87 @@ if(btnSendLink){
   });
 }
 
+
+// ✅ Enviar código (Email OTP) — el usuario NO necesita abrir links.
+if(btnSendCode){
+  btnSendCode.addEventListener("click", async () => {
+    const email = (authEmailEl?.value || "").trim();
+    if(!supabaseClient){
+      showAuthMsg("⚠️ Supabase no está listo. Revisa internet y configuración.");
+      return;
+    }
+    if(!email || !email.includes("@")){
+      showAuthMsg("Escribe un email válido.");
+      return;
+    }
+    // Cooldown anti-spam
+    if(otpCooldownRemainingMs() > 0){
+      updateOtpCooldownUI();
+      return;
+    }
+
+    showAuthMsg("Enviando código…");
+    try{
+      btnSendCode.disabled = true;
+      // En Supabase debes activar Email OTP para que llegue un código de 6 dígitos.
+      const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ shouldCreateUser:true } });
+      if(error) throw error;
+      beginOtpCooldown();
+      showOtpUI(true);
+      showAuthMsg("✅ Revisa tu correo y escribe aquí el código de 6 dígitos.");
+    }catch(err){
+      showAuthMsg("❌ " + (err?.message || "No se pudo enviar el código."));
+    }finally{
+      btnSendCode.disabled = false;
+      updateOtpCooldownUI();
+    }
+  });
+}
+
+if(btnVerifyCode){
+  btnVerifyCode.addEventListener("click", async () => {
+    const email = (authEmailEl?.value || "").trim();
+    const code = (inpCode?.value || "").trim();
+    if(!supabaseClient){
+      showAuthMsg("⚠️ Supabase no está listo.");
+      return;
+    }
+    if(!email || !email.includes("@")){
+      showAuthMsg("Escribe tu email.");
+      return;
+    }
+    if(!code){
+      showAuthMsg("Escribe el código.");
+      return;
+    }
+
+    showAuthMsg("Verificando…");
+    try{
+      // Algunos proyectos usan type: "email". Otros esperan "magiclink". Probamos ambos.
+      let resp = await supabaseClient.auth.verifyOtp({ email, token: code, type: "email" });
+      if(resp?.error){
+        const msg = String(resp.error.message || "");
+        if(/type/i.test(msg) || /invalid/i.test(msg)){
+          resp = await supabaseClient.auth.verifyOtp({ email, token: code, type: "magiclink" });
+        }
+      }
+      if(resp?.error) throw resp.error;
+
+      showOtpUI(false);
+      inpCode.value = "";
+      showAuthMsg("✅ Sesión iniciada.");
+      hideMagicLinkCopy();
+      // Refresh UI
+      await refreshMe().catch(()=>{});
+      renderAccountUI();
+      closeAccountModal();
+    }catch(err){
+      showAuthMsg("❌ " + (err?.message || "Código inválido."));
+    }
+  });
+}
+
+
 if(btnLogout){
   btnLogout.addEventListener("click", async () => {
     try{
@@ -624,16 +642,9 @@ if(btnLogout){
 }
 
 async function startCheckout(){
-  // Guest checkout: if no session, create an anonymous session automatically.
-  if(!authSession?.access_token){
-    if(GUEST_ONLY_AUTH){
-      const s = await ensureAnonymousSession();
-      if(s?.access_token) authSession = s;
-    }
-  }
   if(!authSession?.access_token){
     openAccountModal();
-    showAuthMsg("No hay sesión activa. Intenta de nuevo.");
+    showAuthMsg("Entra con tu email para poder suscribirte.");
     return;
   }
   showBillingMsg("Abriendo checkout…");
@@ -688,6 +699,13 @@ if(btnManage){
 
 // Init auth early
 initSupabaseAuth().catch(()=>{});
+
+// Prefer code-based login (avoid magic links in installed app)
+try{
+  if(btnSendLink) btnSendLink.style.display = "none";
+  hideMagicLinkCopy();
+}catch(_){}
+
 setPlanPillUI();
 
 // Post-checkout UX
@@ -1036,8 +1054,6 @@ const sheetBody = $("#sheetBody");
 const sheetSave = $("#sheetSave");
 
 let selectedWordInfo = null;
-let selectedWordEl = null;
-
 
 function openSheet(){
   sheet.classList.add("is-open");
@@ -1077,7 +1093,7 @@ function buildWordIndex(container){
     const start = Number(el.dataset.start);
     const end = Number(el.dataset.end);
     if(Number.isFinite(start) && Number.isFinite(end)){
-      arr.push({ start, end, el });
+      arr.push({ start, end, el, word: (el.dataset.word || el.textContent || "") });
     }
   });
   arr.sort((a,b) => a.start - b.start);
@@ -1259,7 +1275,7 @@ u.onboundary = (e) => {
     const cleanup = () => {
       stopTick();
       stopLogoReact();
-      if(typeof timer !== 'undefined' && timer){ window.clearInterval(timer); timer = null; }
+      if(timer){ window.clearInterval(timer); timer = null; }
       if(activeSpeech?.container === container){
         clearReadingUI(container);
         activeSpeech = null;
@@ -1352,7 +1368,6 @@ document.body.addEventListener("click", async (e) => {
 
   clearSelectedUI();
   el.classList.add("is-selected");
-  selectedWordEl = el;
 
   const w = (el.dataset.word || el.textContent || "").trim();
   if(!w) return;
@@ -1514,18 +1529,7 @@ function setWordPanel(info){
   btnSpeakWord.onclick = () => speak(info.word);
   btnQuizWord.disabled = false;
 }
-btnSpeakWord.addEventListener("click", () => {
-  if(!lastWordPanel) return;
-  // Highlight the selected word while speaking (even when speaking a single word)
-  try{
-    const el = selectedWordEl || document.querySelector(".word.is-selected");
-    if(el){
-      el.classList.add("is-reading");
-      setTimeout(()=>{ try{ el.classList.remove("is-reading"); }catch(_){ } }, 2500);
-    }
-  }catch(_){ }
-  speak(lastWordPanel.word);
-});
+btnSpeakWord.addEventListener("click", () => { if(lastWordPanel) speak(lastWordPanel.word); });
 
 btnQuizWord.addEventListener("click", async () => {
   if(!lastWordPanel) return;
