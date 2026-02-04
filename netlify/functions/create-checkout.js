@@ -104,9 +104,11 @@ export default async (req) => {
       await updateProfile(user.id, { stripe_customer_id: customerId, email: user.email || profile?.email || null });
     }
 
-    const base = baseUrlFromReq(req);
-    const success_url = `${base}/?success=1`;
-    const cancel_url = `${base}/?canceled=1`;
+    const base = ((process.env.PUBLIC_APP_URL || process.env.PUBLIC_SITE_URL || "")
+      .replace(/\/$/, "")
+      || baseUrlFromReq(req));
+    const success_url = `${base.replace(/\/$/, "")}/?success=1`;
+    const cancel_url = `${base.replace(/\/$/, "")}/?canceled=1`;
 
     const session = await stripePostForm("/v1/checkout/sessions", {
       mode: "subscription",

@@ -1,4 +1,4 @@
-const APP_VERSION = 'v13';
+const APP_VERSION = 'v15';
 /* ARGUS SPEAK LAB-X — Article + AI Prototype
    Client calls /api/ai (Netlify function) to keep OpenAI key secret.
 */
@@ -1037,9 +1037,9 @@ function stopSpeech(){
 function buildWordTimeline(index, rate){
   // Build an estimated time (ms) for each word, based on length + punctuation.
   // Later we calibrate with real boundary events so it matches audio better (especially on mobile).
-  const basePerWord = 290;      // ms (slower, closer to mobile speech)
-  const perChar = 25;          // ms per character (slower)
-  const punctBonus = 210;      // extra pause after punctuation (slower)
+  const basePerWord = 340;      // ms (more conservative so it doesn't outrun audio)
+  const perChar = 28;          // ms per character
+  const punctBonus = 260;      // extra pause after punctuation
   const r = Math.max(0.6, Math.min(1.6, rate || 1));
   let cum = 0;
   const timeline = [];
@@ -1122,6 +1122,7 @@ function speak(text, opts = {}){
 
     const tick = () => {
       if(!activeSpeech || activeSpeech.container !== container) return;
+      if(boundaryOnly) { raf = requestAnimationFrame(tick); return; }
       const elapsed = performance.now() - startAt;
       // Advance while the next word estimated time is <= elapsed (never runs ahead of time).
       while(lastIdx + 1 < timeline.length && timeline[lastIdx + 1].t <= elapsed){
@@ -1145,13 +1146,17 @@ function speak(text, opts = {}){
 
 // Boundary sync (best when supported). On Android it can run a bit early, so we add a tiny delay.
 let boundarySeen = false;
+let boundaryCount = 0;
+let boundaryOnly = false;
 u.onboundary = (e) => {
   const ci = typeof e.charIndex === "number" ? e.charIndex : 0;
   const idx = findTimelineIdxByChar(timeline, ci);
   if(idx >= 0){
     boundarySeen = true;
+    boundaryCount++;
+    if(boundaryCount >= 3){ boundaryOnly = true; stopTick(); }
     lastIdx = Math.max(lastIdx, idx);
-    const delay = isMobile ? 180 : 0;
+    const delay = isMobile ? 240 : 0;
     setTimeout(() => {
       if(activeSpeech && activeSpeech.container === container){
         showAtIdx(lastIdx);

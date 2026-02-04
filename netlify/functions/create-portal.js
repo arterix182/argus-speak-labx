@@ -82,10 +82,12 @@ export default async (req) => {
     const customer = profile?.stripe_customer_id;
     if(!customer) return new Response("No Stripe customer for this user. Subscribe first.", { status: 400 });
 
-    const base = baseUrlFromReq(req);
+    const base = ((process.env.PUBLIC_APP_URL || process.env.PUBLIC_SITE_URL || "")
+      .replace(/\/$/, "")
+      || baseUrlFromReq(req));
     const portal = await stripePostForm("/v1/billing_portal/sessions", {
       customer,
-      return_url: base + "/"
+      return_url: base.replace(/\/$/, "") + "/"
     });
 
     return new Response(JSON.stringify({ url: portal.url }), { status:200, headers:{ "Content-Type":"application/json", "Cache-Control":"no-store" }});
