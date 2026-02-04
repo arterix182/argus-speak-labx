@@ -1,23 +1,4 @@
 // Netlify Function: /api/ai
-
-// --- Helpers (safe diagnostics, no secrets) ---
-function b64urlDecode(str){
-  str = (str||"").replace(/-/g, "+").replace(/_/g, "/");
-  while (str.length % 4) str += "=";
-  try { return Buffer.from(str, "base64").toString("utf8"); } catch { return ""; }
-}
-function decodeJwtPayload(token){
-  try{
-    const p = (token||"").split(".")[1];
-    if(!p) return null;
-    return JSON.parse(b64urlDecode(p));
-  }catch{
-    return null;
-  }
-}
-function refFromUrl(u){
-  try{ return new URL(u).hostname.split(".")[0] || null; }catch{ return null; }
-}
 // Keep OPENAI_API_KEY on the server (Environment Variables).
 // Calls OpenAI Responses API: https://api.openai.com/v1/responses
 //
@@ -28,8 +9,8 @@ function refFromUrl(u){
 console.log("SUPABASE_URL (ai) =", process.env.SUPABASE_URL);
 async function getSupabaseUser(req){
   const supabaseUrl = process.env.SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if(!supabaseUrl || !anonKey) return { error:"Missing SUPABASE_URL / SUPABASE_ANON_KEY (Functions env)", status:500 };
+  const anonKey = process.env.SUPABASE_ANON_KEY;
+  if(!supabaseUrl || !anonKey) return { error:"Missing SUPABASE_URL / SUPABASE_ANON_KEY", status:500 };
 
   const auth = req.headers.get("authorization") || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
@@ -41,14 +22,7 @@ async function getSupabaseUser(req){
   });
   if(!r.ok){
   const txt = await r.text().catch(()=> "");
-  if(/valid issuer/i.test(txt) || /invalid issuer/i.test(txt)){
-    const expectedIssuer = (supabaseUrl||"").replace(/\/$/,"") + "/auth/v1";
-    const tokenPayload = decodeJwtPayload(token);
-    const tokenIss = tokenPayload?.iss || null;
-    const expectedRef = refFromUrl(supabaseUrl);
-    const tokenRef = tokenIss ? refFromUrl(tokenIss) : null;
-    return { error: "ISSUER " + JSON.stringify({ expectedIssuer, tokenIss, expectedRef, tokenRef }), status:401 };
-  }
+  if(/valid issuer/i.test(txt)) return { error:"ISSUER", status:401 };
   return { error:"Sesión inválida. Vuelve a entrar.", status:401 };
 }
   const user = await r.json();
@@ -57,7 +31,7 @@ async function getSupabaseUser(req){
 
 async function getProfileByUserId(userId){
   const supabaseUrl = process.env.SUPABASE_URL;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE;
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if(!supabaseUrl || !service) return null;
 
   const url = `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=subscription_status,subscription_current_period_end`;
@@ -99,7 +73,7 @@ function clampInt(v, fallback){
 
 async function consumeDailyQuota(userId, limit, today){
   const supabaseUrl = process.env.SUPABASE_URL;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if(!supabaseUrl || !service){
     return { error: "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY", status: 500 };
   }
@@ -133,7 +107,7 @@ async function consumeDailyQuota(userId, limit, today){
 
 async function refundDailyQuota(userId, today){
   const supabaseUrl = process.env.SUPABASE_URL;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if(!supabaseUrl || !service) return;
 
   // Best-effort refund: if OpenAI fails, don't charge the daily counter
@@ -160,48 +134,16 @@ export default async (req) => {
 
     // Cheap health-check without calling OpenAI
     if(task === "ping"){
-      return new Response(JSON.stringify({ pong: "OK" }), { status:200, headers:{ "Content-Type":"application/json" }});
+      return new Response(JSON.stringify({ pong: "OK_NO_SUPABASE" }), { status:200, headers:{ "Content-Type":"application/json" }});
     }
 
-    // Auth + subscription (for plan selection) + daily quota
-const s = await getSupabaseUser(req);
-if(s?.error) return new Response(s.error, { status: s.status || 401 });
-
-const profile = await getProfileByUserId(s.user.id);
-const pro = isPro(profile);
-
-// Daily limits (override via Netlify env vars if you want)
-const proLimit = clampInt(process.env.PRO_DAILY_AI_LIMIT, 50);
-const freeLimit = clampInt(process.env.FREE_DAILY_AI_LIMIT, 1);
-const limit = pro ? proLimit : freeLimit;
-
-const today = todayInMexicoCity();
-const quota = await consumeDailyQuota(s.user.id, limit, today);
-if(quota?.error){
-  return new Response(quota.error, { status: quota.status || 500 });
-}
-if(!quota.allowed){
-  const msg = pro
-    ? `Límite diario PRO alcanzado (${limit}/día). Vuelve mañana.`
-    : `Límite diario FREE alcanzado (${limit}/día). Suscríbete a PRO para tener más.`;
-  return new Response(JSON.stringify({
-    error: "daily_limit",
-    plan: pro ? "PRO" : "FREE",
-    limit,
-    used: quota.used ?? null,
-    remaining: 0,
-    reset_date: quota.reset_date ?? today,
-    message: msg
-  }), { status: 429, headers: { "Content-Type":"application/json" }});
-}
-
-
-    const key = process.env.OPENAI_API_KEY;
+    // --- NO SUPABASE AUTH (simple AI like Biblia app) ---
+    const key = (globalThis.Netlify?.env?.get?.("OPENAI_API_KEY")) || process.env.OPENAI_API_KEY;
     if(!key){
       return new Response("Missing OPENAI_API_KEY env var", { status: 500 });
     }
 
-    const model = process.env.OPENAI_MODEL || "gpt-5";
+    const model = (globalThis.Netlify?.env?.get?.("OPENAI_MODEL")) || process.env.OPENAI_MODEL || "gpt-5.2";
     const store = false;
 
     const prompts = buildPrompt(task, payload);
@@ -231,9 +173,7 @@ if(!quota.allowed){
 
     const json = await r.json().catch(()=> ({}));
     if(!r.ok){
-      const msg = json?.error?.message || "OpenAI request failed";
-      await refundDailyQuota(s.user.id, today);
-      return new Response(msg, { status: 500 });
+      const msg = json?.error?.message || "OpenAI request failed";      return new Response(msg, { status: 500 });
     }
 
     // Extract text
