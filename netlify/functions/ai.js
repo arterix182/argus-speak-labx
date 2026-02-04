@@ -1,128 +1,94 @@
-// Netlify Function: /api/ai
-// Keep OPENAI_API_KEY on the server (Environment Variables).
-// Calls OpenAI Responses API: https://api.openai.com/v1/responses
+// Netlify Edge Function: /api/ai
+// ✅ IA con OpenAI (OPENAI_API_KEY) + candado PRO con Supabase (sin issuer drama en el frontend).
 //
-// Access control + daily quota:
-// - Requires Supabase session
-// - Daily limits: FREE=1/day, PRO=50/day (configurable)
-// - Subscription status in `profiles` selects PRO vs FREE
-console.log("SUPABASE_URL (ai) =", process.env.SUPABASE_URL);
-async function getSupabaseUser(req){
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY;
-  if(!supabaseUrl || !anonKey) return { error:"Missing SUPABASE_URL / SUPABASE_ANON_KEY", status:500 };
+// Cómo funciona:
+// - El frontend manda Authorization: Bearer <supabase_access_token>
+// - Esta función valida el token con Supabase Auth (solo para sacar user.id)
+// - Luego consulta `profiles` con service key para saber si es PRO
+// - Si NO es PRO -> 402 (PRO_REQUIRED) y NO se llama a OpenAI
+//
+// Variables de entorno (Netlify):
+// - OPENAI_API_KEY              (obligatoria)
+// - OPENAI_MODEL                (opcional, default: gpt-5.2)
+// - SUPABASE_URL                (obligatoria si REQUIRE_PRO=1)
+// - SUPABASE_ANON_KEY           (sb_publishable_...)
+// - SUPABASE_SERVICE_ROLE_KEY   (sb_secret_...)  (o SUPABASE_SERVICE_ROLE como alias)
+// - REQUIRE_PRO                 (default: "1")  -> "0" para dejar IA libre (no recomendado)
 
+function getEnv(k){
+  // Edge runtime (Netlify) + compat con otros runtimes
+  try{
+    // eslint-disable-next-line no-undef
+    if(typeof Netlify !== "undefined" && Netlify.env?.get) return Netlify.env.get(k);
+  }catch(_){}
+  try{
+    // eslint-disable-next-line no-undef
+    if(typeof Deno !== "undefined" && Deno.env?.get) return Deno.env.get(k);
+  }catch(_){}
+  try{
+    // eslint-disable-next-line no-undef
+    if(typeof process !== "undefined" && process.env) return process.env[k];
+  }catch(_){}
+  return undefined;
+}
+
+function json(body, status=200){
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type":"application/json" }
+  });
+}
+
+function normalizeUrl(u){
+  return String(u||"").replace(/\/$/, "");
+}
+
+async function getSupabaseUserId(req, supabaseUrl, anonKey){
   const auth = req.headers.get("authorization") || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
-  if(!m) return { error:"Necesitas iniciar sesión (token).", status:401 };
+  if(!m) return { ok:false, status: 401, error: "NO_TOKEN" };
 
-  const token = m[1];
-  const r = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: { "apikey": anonKey, "Authorization": `Bearer ${token}` }
+  const token = m[1].trim();
+  const r = await fetch(`${normalizeUrl(supabaseUrl)}/auth/v1/user`, {
+    headers: {
+      "apikey": anonKey,
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/json"
+    }
   });
+
+  const txt = await r.text();
   if(!r.ok){
-  const txt = await r.text().catch(()=> "");
-  if(/valid issuer/i.test(txt)) return { error:"ISSUER", status:401 };
-  return { error:"Sesión inválida. Vuelve a entrar.", status:401 };
-}
-  const user = await r.json();
-  return { user };
+    // No cerramos sesión aquí; solo devolvemos un error “vuelve a iniciar”
+    // (así evitas que seleccionar una palabra te expulse).
+    return { ok:false, status: 401, error: "BAD_SESSION", details: txt.slice(0, 240) };
+  }
+
+  let user = null;
+  try{ user = JSON.parse(txt); }catch(_){}
+  if(!user?.id) return { ok:false, status: 401, error: "BAD_SESSION" };
+
+  return { ok:true, userId: user.id };
 }
 
-async function getProfileByUserId(userId){
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if(!supabaseUrl || !service) return null;
-
-  const url = `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=subscription_status,subscription_current_period_end`;
+async function isProUser(userId, supabaseUrl, serviceKey){
+  const url = `${normalizeUrl(supabaseUrl)}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=subscription_status,subscription_current_period_end`;
   const r = await fetch(url, {
-    headers: { "apikey": service, "Authorization": `Bearer ${service}` }
+    headers: { "apikey": serviceKey, "Authorization": `Bearer ${serviceKey}` }
   });
-  if(!r.ok) return null;
-  const rows = await r.json();
-  return rows?.[0] || null;
-}
+  if(!r.ok) return false;
 
-function isPro(profile){
-  const st = (profile?.subscription_status || "").toLowerCase();
+  const rows = await r.json().catch(()=>[]);
+  const profile = rows?.[0] || null;
+
+  const st = String(profile?.subscription_status || "").toLowerCase();
   if(st !== "active" && st !== "trialing") return false;
+
   const end = profile?.subscription_current_period_end ? Date.parse(profile.subscription_current_period_end) : NaN;
   if(!Number.isNaN(end) && end < Date.now() - 60_000) return false;
+
   return true;
 }
-
-
-function todayInMexicoCity(){
-  // Returns YYYY-MM-DD in America/Mexico_City (so "daily" matches your real day)
-  try{
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Mexico_City",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).format(new Date());
-  }catch(_){
-    return new Date().toISOString().slice(0,10);
-  }
-}
-
-function clampInt(v, fallback){
-  const n = parseInt(String(v ?? ""), 10);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-async function consumeDailyQuota(userId, limit, today){
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if(!supabaseUrl || !service){
-    return { error: "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY", status: 500 };
-  }
-
-  const r = await fetch(`${supabaseUrl}/rest/v1/rpc/consume_ai_quota`, {
-    method: "POST",
-    headers: {
-      "apikey": service,
-      "Authorization": `Bearer ${service}`,
-      "Content-Type": "application/json",
-      "Accept": "application/json"
-    },
-    body: JSON.stringify({ p_user_id: userId, p_limit: limit, p_today: today })
-  });
-
-  if(!r.ok){
-    const txt = await r.text().catch(()=> "");
-    return {
-      error:
-        "No pude validar tu límite diario. " +
-        "En Supabase ejecuta el SQL de 'AI quota' (columnas daily_ai_* + RPC consume_ai_quota). " +
-        (txt ? `\nDetalle: ${txt}` : ""),
-      status: 500
-    };
-  }
-
-  const data = await r.json().catch(()=> null);
-  const row = Array.isArray(data) ? data[0] : data;
-  return row || { error: "Respuesta inválida de consume_ai_quota", status: 500 };
-}
-
-async function refundDailyQuota(userId, today){
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if(!supabaseUrl || !service) return;
-
-  // Best-effort refund: if OpenAI fails, don't charge the daily counter
-  await fetch(`${supabaseUrl}/rest/v1/rpc/refund_ai_quota`, {
-    method: "POST",
-    headers: {
-      "apikey": service,
-      "Authorization": `Bearer ${service}`,
-      "Content-Type": "application/json",
-      "Accept": "application/json"
-    },
-    body: JSON.stringify({ p_user_id: userId, p_today: today })
-  }).catch(()=>{});
-}
-
 
 export default async (req) => {
   try{
@@ -134,87 +100,92 @@ export default async (req) => {
 
     // Cheap health-check without calling OpenAI
     if(task === "ping"){
-      return new Response(JSON.stringify({ pong: "OK_NO_SUPABASE" }), { status:200, headers:{ "Content-Type":"application/json" }});
+      return json({ pong: "PRO_AI_READY" }, 200);
     }
 
-    // --- NO SUPABASE AUTH (simple AI like Biblia app) ---
-    const key = (globalThis.Netlify?.env?.get?.("OPENAI_API_KEY")) || process.env.OPENAI_API_KEY;
-    if(!key){
+    const requirePro = String(getEnv("REQUIRE_PRO") ?? "1") !== "0";
+    if(requirePro){
+      const supabaseUrl = getEnv("SUPABASE_URL");
+      const anonKey = getEnv("SUPABASE_ANON_KEY") || getEnv("VITE_SUPABASE_ANON_KEY");
+      const serviceKey = getEnv("SUPABASE_SERVICE_ROLE_KEY") || getEnv("SUPABASE_SERVICE_ROLE");
+
+      if(!supabaseUrl || !anonKey || !serviceKey){
+        return json({ error: "SERVER_MISCONFIG", hint: "Faltan variables Supabase en Functions/Edge." }, 500);
+      }
+
+      const u = await getSupabaseUserId(req, supabaseUrl, anonKey);
+      if(!u.ok){
+        return json({
+          error: "NEED_LOGIN",
+          message: "Tu sesión no es válida. Cierra sesión, borra datos del sitio y vuelve a iniciar."
+        }, u.status || 401);
+      }
+
+      const pro = await isProUser(u.userId, supabaseUrl, serviceKey);
+      if(!pro){
+        return json({
+          error: "PRO_REQUIRED",
+          message: "Esta función de IA está disponible solo para cuentas PRO.",
+          upgrade: true
+        }, 402);
+      }
+    }
+
+    const apiKey = getEnv("OPENAI_API_KEY");
+    if(!apiKey){
       return new Response("Missing OPENAI_API_KEY env var", { status: 500 });
     }
 
-    const model = (globalThis.Netlify?.env?.get?.("OPENAI_MODEL")) || process.env.OPENAI_MODEL || "gpt-5.2";
-    const store = false;
+    const model = String(getEnv("OPENAI_MODEL") || "gpt-5.2");
 
-    const prompts = buildPrompt(task, payload);
-    if(!prompts){
-      return new Response(JSON.stringify({ error: "Unknown task" }), { status: 400, headers: { "Content-Type":"application/json" } });
+    const prompt = buildPrompt(task, payload);
+    if(!prompt){
+      return json({ error: "Unknown task" }, 400);
     }
-
-    const body = {
-      model,
-      store,
-      input: [
-        { role:"system", content: prompts.instructions },
-        { role:"user", content: prompts.input }
-      ],
-      // Ask for JSON when needed; individual tasks instruct strict JSON.
-      text: { format: { type: "text" } }
-    };
 
     const r = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${key}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        model,
+        instructions: prompt.instructions,
+        input: prompt.input
+      })
     });
 
-    const json = await r.json().catch(()=> ({}));
+    const jsonResp = await r.json().catch(()=> ({}));
     if(!r.ok){
-      const msg = json?.error?.message || "OpenAI request failed";      return new Response(msg, { status: 500 });
+      return json({ error: "OPENAI_ERROR", details: jsonResp }, r.status || 500);
     }
 
-    // Extract text
     let outText = "";
-    const stripFences = (t) => {
-      const s = String(t||"").trim();
-      if(s.startsWith("```")){
-        return s.replace(/^```[a-zA-Z0-9_-]*\n?/, "").replace(/```\s*$/, "").trim();
-      }
-      return s;
-    };
-    try{
-      // Newer Responses API can include output_text helper in some SDKs, but raw JSON varies.
-      if(typeof json.output_text === "string") outText = json.output_text;
-      else if(Array.isArray(json.output)){
-        for(const item of json.output){
-          const c = item?.content;
-          if(Array.isArray(c)){
-            for(const part of c){
-              if(part?.type === "output_text") outText += (part.text || "");
-              if(part?.type === "text") outText += (part.text || "");
-            }
-          }
+    // Responses API: prefer output_text if present
+    if(typeof jsonResp.output_text === "string") outText = jsonResp.output_text;
+
+    // Fallback: walk output content
+    if(!outText && Array.isArray(jsonResp.output)){
+      for(const item of jsonResp.output){
+        for(const part of (item?.content || [])){
+          if(part?.type === "output_text") outText += (part.text || "");
+          if(part?.type === "text") outText += (part.text || "");
         }
       }
-    }catch(_){}
+    }
 
-    // Try parse JSON if user asked for JSON
     let data = null;
     try{ data = JSON.parse(outText); }catch(_){}
 
     const result = data ?? { text: outText };
+    return json(result, 200);
 
-    return new Response(JSON.stringify(result), {
-      status: 200,
-      headers: { "Content-Type":"application/json", "Cache-Control":"no-store" }
-    });
   }catch(err){
     return new Response(err?.message || "AI error", { status: 500 });
   }
 };
+
 
 
 function buildPrompt(task, payload){
