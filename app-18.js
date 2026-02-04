@@ -2004,3 +2004,198 @@ const APP_VERSION = 'v20';
     __boot();
   }
 })();
+
+
+
+/* =========================================================
+   HOTFIX: OTP buttons not firing (Netlify domain)
+   - Delegated click handlers for "Enviar código" and "Verificar"
+   - Accept OTP length 6-12 (Supabase may send 8)
+   - Hide "link mágico" copy (OTP-only flow)
+   - Safe: no-op if Supabase client not present
+   Build: fixed20h
+========================================================= */
+(() => {
+  try {
+    window.__APP_BUILD__ = window.__APP_BUILD__ || "fixed20h";
+    window.__APP_BUILD_HOTFIX__ = "otp_click_delegate_v1";
+
+    const log = (...a) => console.log("%c[OTP HOTFIX]", "color:#7dd3fc", ...a);
+
+    const $ = (sel, root=document) => root.querySelector(sel);
+    const $all = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    const getSupabase = () => (
+      window.supabaseClient ||
+      window._supabaseClient ||
+      window.supabase ||
+      window.supabaseAuthClient ||
+      null
+    );
+
+    const showMsg = (msg, type="error") => {
+      try {
+        if (typeof window.toast === "function") return window.toast(msg, type);
+        if (window.ui && typeof window.ui.toast === "function") return window.ui.toast(msg, type);
+      } catch {}
+      log(type.toUpperCase() + ":", msg);
+      if (type === "error") alert(msg);
+    };
+
+    const normalizeEmail = (v) => (v || "").trim().toLowerCase();
+    const normalizeCode  = (v) => (v || "").replace(/\D/g, "").trim();
+
+    const findEmailInput = () => (
+      $("#acctEmail") ||
+      $("#email") ||
+      $('input[type="email"]') ||
+      $('input[autocomplete="email"]') ||
+      $('input[name="email"]') ||
+      null
+    );
+
+    const findCodeInput = () => (
+      $("#acctCode") ||
+      $("#code") ||
+      $('input[autocomplete="one-time-code"]') ||
+      $('input[inputmode="numeric"]') ||
+      $('input[name*="code" i]') ||
+      null
+    );
+
+    const patchInputsUI = () => {
+      const code = findCodeInput();
+      if (code) {
+        try {
+          code.removeAttribute("maxlength");
+          code.setAttribute("maxlength", "12");
+          code.setAttribute("inputmode", "numeric");
+          code.setAttribute("autocomplete", "one-time-code");
+          code.setAttribute("pattern", "[0-9]{6,12}");
+        } catch {}
+      }
+      $all("label").forEach((lab) => {
+        const t = (lab.textContent || "").toLowerCase();
+        if (t.includes("código") && t.includes("6")) {
+          lab.textContent = "Código (6–12 dígitos)";
+        }
+      });
+      $all("*").forEach((el) => {
+        const txt = (el.textContent || "");
+        if (txt.includes("link mágico") || txt.includes("link magico")) {
+          el.style.display = "none";
+        }
+      });
+    };
+
+    const ensureFreshSession = async () => {
+      const supa = getSupabase();
+      if (!supa?.auth) return null;
+      try {
+        const { data } = await supa.auth.getSession();
+        if (data?.session) return data.session;
+      } catch {}
+      try {
+        const { data } = await supa.auth.refreshSession();
+        return data?.session || null;
+      } catch {}
+      return null;
+    };
+
+    const sendOtp = async () => {
+      patchInputsUI();
+      const supa = getSupabase();
+      if (!supa?.auth?.signInWithOtp) {
+        showMsg("No se detecta Supabase en el frontend. Revisa SUPABASE_URL y sb_publishable.", "error");
+        return;
+      }
+      const email = normalizeEmail(findEmailInput()?.value);
+      if (!email || !email.includes("@")) {
+        showMsg("Pon un email válido.", "error");
+        return;
+      }
+      try {
+        try { await supa.auth.signOut(); } catch {}
+        const { error } = await supa.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+        if (error) throw error;
+        showMsg("Código enviado. Usa el ÚLTIMO que recibas.", "success");
+      } catch (e) {
+        showMsg(e?.message || String(e), "error");
+      }
+    };
+
+    const verifyOtp = async () => {
+      patchInputsUI();
+      const supa = getSupabase();
+      if (!supa?.auth?.verifyOtp) {
+        showMsg("No se detecta verifyOtp. Revisa la versión de supabase-js.", "error");
+        return;
+      }
+      const email = normalizeEmail(findEmailInput()?.value);
+      const token = normalizeCode(findCodeInput()?.value);
+      if (!email || !email.includes("@")) return showMsg("Pon un email válido.", "error");
+      if (token.length < 6) return showMsg("Pega el código completo (6–12 dígitos).", "error");
+
+      const types = ["email", "signup", "magiclink"];
+      let lastErr = null;
+      for (const type of types) {
+        try {
+          const { error } = await supa.auth.verifyOtp({ email, token, type });
+          if (!error) {
+            await ensureFreshSession();
+            showMsg("✅ Sesión iniciada.", "success");
+            return;
+          }
+          lastErr = error;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      showMsg(lastErr?.message || "Token inválido/expirado. Pide un nuevo código y usa el ÚLTIMO.", "error");
+    };
+
+    const isLikelySendBtn = (btn) => {
+      const id = (btn.id || "").toLowerCase();
+      const t  = (btn.textContent || "").trim().toLowerCase();
+      return id.includes("send") || (t.includes("enviar") && t.includes("código"));
+    };
+
+    const isLikelyVerifyBtn = (btn) => {
+      const id = (btn.id || "").toLowerCase();
+      const t  = (btn.textContent || "").trim().toLowerCase();
+      return id.includes("verify") || t.includes("verificar");
+    };
+
+    document.addEventListener("click", (ev) => {
+      const btn = ev.target?.closest?.("button");
+      if (!btn) return;
+      const emailEl = findEmailInput();
+      if (!emailEl) return;
+
+      if (isLikelySendBtn(btn)) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation?.();
+        log("Send OTP clicked");
+        sendOtp();
+      } else if (isLikelyVerifyBtn(btn)) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation?.();
+        log("Verify OTP clicked");
+        verifyOtp();
+      }
+    }, true);
+
+    let ticks = 0;
+    const int = setInterval(() => {
+      ticks++;
+      patchInputsUI();
+      if (ticks > 20) clearInterval(int);
+    }, 500);
+
+    log("installed", window.__APP_BUILD__, window.__APP_BUILD_HOTFIX__);
+  } catch (e) {
+    console.error("[OTP HOTFIX] failed to install:", e);
+  }
+})();
