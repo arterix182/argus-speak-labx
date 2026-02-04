@@ -1,8 +1,28 @@
-const APP_VERSION = 'v15';
+const APP_VERSION = 'v16';
 /* ARGUS SPEAK LAB-X — Article + AI Prototype
    Client calls /api/ai (Netlify function) to keep OpenAI key secret.
 */
 const $ = (q) => document.querySelector(q);
+
+// --- Guarantee visible word-highlighting during TTS (even if CSS cache misses)
+(function ensureTtsHighlightStyle(){
+  try{
+    if(document.getElementById("ttsHighlightStyle")) return;
+    const st = document.createElement("style");
+    st.id = "ttsHighlightStyle";
+    st.textContent = `
+      .word.is-reading{
+        text-shadow: 0 0 10px rgba(255,255,255,.85), 0 0 22px rgba(0,210,255,.55);
+        background: rgba(255,255,255,.10);
+        border-radius: 8px;
+        padding: 0 2px;
+      }
+      .is-speaking .word{ transition: text-shadow .12s ease, background .12s ease; }
+    `;
+    document.head.appendChild(st);
+  }catch(_){}
+})();
+
 
 // API base autodetect: "/api" (with redirect) or "/.netlify/functions" (direct)
 let API_BASE = "/api";
@@ -84,20 +104,6 @@ const btnSendCode = $("#btnSendCode");
 const otpField = $("#otpField");
 const inpCode = $("#authCode");
 const btnVerifyCode = $("#btnVerifyCode");
-
-// --- Auth UX: prefer Email OTP code (no magic-link required) ---
-function hideMagicLinkCopy(){
-  try{
-    const modal = document.querySelector("#accountModal") || document.body;
-    modal.querySelectorAll("*").forEach(el=>{
-      const t = (el.textContent||"").toLowerCase();
-      if(t.includes("link mágico") || t.includes("abre el link") || t.includes("sin contraseñas")){
-        // hide helper paragraphs only; keep labels/inputs
-        if(el.tagName === "P" || el.tagName === "SMALL" || el.classList.contains("muted")) el.style.display = "none";
-      }
-    });
-  }catch(_){}
-}
 const btnLogout = $("#btnLogout");
 const btnSubscribe = $("#btnSubscribe");
 const btnManage = $("#btnManage");
@@ -113,6 +119,73 @@ let otpCooldownTimer = null;
 let supabaseClient = null;
 let authSession = null;
 let meState = { pro:false, status:"free", email:"Invitado" };
+// --- OTP code login (recommended for installed apps; no email link round-trips)
+function validEmail(email){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email||"").trim());
+}
+
+if(btnSendCode){
+  btnSendCode.addEventListener("click", async () => {
+    const email = String(authEmailEl?.value || "").trim();
+    if(!validEmail(email)){
+      showAuthMsg("⚠️ Escribe un email válido.");
+      return;
+    }
+    if(otpCooldownRemainingMs() > 0){
+      const s = Math.ceil(otpCooldownRemainingMs()/1000);
+      showAuthMsg(`⏳ Espera ${s}s para reenviar el código.`);
+      updateOtpCooldownUI();
+      return;
+    }
+    showAuthMsg("Enviando código…");
+    try{
+      btnSendCode.disabled = true;
+      // signInWithOtp triggers OTP *or* link depending on Supabase settings.
+      // Ensure Email OTP is enabled in Supabase Auth settings.
+      const { error } = await supabaseClient.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: true }
+      });
+      if(error) throw error;
+      beginOtpCooldown();
+      showAuthMsg("✅ Código enviado. Revisa tu correo y pégalo aquí.");
+      try{ otpField && (otpField.hidden = false); }catch(_){}
+      try{ inpCode && inpCode.focus(); }catch(_){}
+    }catch(err){
+      showAuthMsg("❌ " + (err?.message || "No se pudo enviar el código."));
+    }finally{
+      updateOtpCooldownUI();
+    }
+  });
+}
+
+if(btnVerifyCode){
+  btnVerifyCode.addEventListener("click", async () => {
+    const email = String(authEmailEl?.value || "").trim();
+    const token = String(inpCode?.value || "").trim().replace(/\s+/g,"");
+    if(!validEmail(email)){
+      showAuthMsg("⚠️ Email inválido.");
+      return;
+    }
+    if(!/^\d{6}$/.test(token)){
+      showAuthMsg("⚠️ Escribe el código de 6 dígitos.");
+      return;
+    }
+    showAuthMsg("Verificando…");
+    try{
+      const { data, error } = await supabaseClient.auth.verifyOtp({ email, token, type: "email" });
+      if(error) throw error;
+      authSession = data?.session || authSession;
+      showAuthMsg("✅ Sesión iniciada.");
+      // refresh profile/pro
+      refreshMe().catch(()=>{});
+      renderAccountUI();
+    }catch(err){
+      showAuthMsg("❌ " + (err?.message || "Token inválido o expirado. Pide un código nuevo."));
+    }
+  });
+}
+
 
 function setPlanPillUI(){
   if(!planPill) return;
@@ -142,8 +215,6 @@ function showBillingMsg(text){
 }
 
 function openAccountModal(){
-  try{ hideMagicLinkCopy(); }catch(_){ }
-
   if(!accountModal) return;
   accountModal.hidden = false;
   document.body.style.overflow = "hidden";
@@ -257,7 +328,7 @@ async function fetchConfig(){
 async function initSupabaseAuth(){
   if(!window.supabase){
     showAuthMsg("⚠️ No se pudo cargar Supabase (revisa internet o bloqueador).");
-    try{ btnSendLink && (btnSendLink.disabled = true); }catch(_){ }
+    try{ btnSendCode && (btnSendCode.disabled = true); }catch(_){ }
     try{ btnSubscribe && (btnSubscribe.disabled = true); }catch(_){ }
     return;
   }
@@ -447,16 +518,24 @@ function renderAccountUI(){
   if(accountEmailEl) accountEmailEl.textContent = email;
   const loggedIn = !!authSession?.access_token;
 
+  // Hide magic-link UI (PWA installed apps often fail to capture the session when opening email links)
+  if(btnSendLink){
+    btnSendLink.hidden = true;
+    btnSendLink.disabled = true;
+  }
+
+  // OTP code UI
+  if(otpField) otpField.hidden = loggedIn;          // hide code input once logged in
+  if(btnSendCode) btnSendCode.hidden = loggedIn;    // show only when not logged in
+  if(btnVerifyCode) btnVerifyCode.hidden = loggedIn;
+
   if(btnLogout) btnLogout.hidden = !loggedIn;
-  if(btnSendLink) btnSendLink.disabled = !supabaseClient;
 
   // Subscription controls
   if(btnManage) btnManage.hidden = !meState.pro;
   if(btnSubscribe) btnSubscribe.hidden = meState.pro;
 
   setPlanPillUI();
-
-  // Keep the send-link button under a short cooldown to avoid Supabase email rate limits.
   updateOtpCooldownUI();
 }
 
@@ -471,30 +550,26 @@ function otpCooldownRemainingMs(){
 }
 
 function updateOtpCooldownUI(){
-  if(!btnSendLink) return;
+  if(!btnSendCode) return;
 
-  const baseLabel = "Enviar link";
+  const baseLabel = "Enviar código";
   const tick = () => {
     const left = otpCooldownRemainingMs();
     if(left > 0){
       const s = Math.ceil(left / 1000);
-      btnSendLink.disabled = true;
-      btnSendLink.textContent = `${baseLabel} (${s}s)`;
+      btnSendCode.disabled = true;
+      btnSendCode.textContent = `${baseLabel} (${s}s)`;
       return;
     }
-    // Cooldown finished
-    btnSendLink.disabled = !supabaseClient;
-    btnSendLink.textContent = baseLabel;
+    btnSendCode.disabled = !supabaseClient;
+    btnSendCode.textContent = baseLabel;
     if(otpCooldownTimer){
       clearInterval(otpCooldownTimer);
       otpCooldownTimer = null;
     }
   };
 
-  // Update once immediately
   tick();
-
-  // If we are in cooldown and no timer is running, start one
   if(otpCooldownRemainingMs() > 0 && !otpCooldownTimer){
     otpCooldownTimer = setInterval(tick, 500);
   }
@@ -506,131 +581,10 @@ function beginOtpCooldown(){
 }
 
 if(btnSendLink){
-  btnSendLink.addEventListener("click", async () => {
-    const email = (authEmailEl?.value || "").trim();
-    if(!supabaseClient){
-      showAuthMsg("⚠️ Supabase no está listo (¿sin internet o falta config?).");
-      return;
-    }
-    if(!email || !email.includes("@")){
-      showAuthMsg("Escribe un email válido.");
-      return;
-    }
-
-    // Local cooldown to avoid hitting Supabase email rate limits.
-    const remaining = otpCooldownRemainingMs();
-    if(remaining > 0){
-      const s = Math.ceil(remaining / 1000);
-      showAuthMsg(`⏳ Espera ${s}s para reenviar el link.`);
-      updateOtpCooldownUI();
-      return;
-    }
-
-    showAuthMsg("Enviando link…");
-    try{
-      // prevent double-click spam
-      btnSendLink.disabled = true;
-      const redirectTo = (PUBLIC_APP_URL || window.location.origin).replace(/\/$/, "");
-      const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
-      if(error) throw error;
-      beginOtpCooldown();
-      showAuthMsg("✅ Listo. Revisa tu correo y abre el link para entrar.");
-    }catch(err){
-      const msg = (err?.message || "No se pudo enviar el link.");
-      const isRate = /rate\s*limit/i.test(msg);
-      if(isRate){
-        beginOtpCooldown();
-        showAuthMsg("❌ Límite de correos alcanzado. Espera un poco y vuelve a intentar. (Tip: no presiones varias veces)");
-      }else{
-        // re-enable immediately for non-rate errors
-        btnSendLink.disabled = !supabaseClient;
-        btnSendLink.textContent = "Enviar link";
-        showAuthMsg("❌ " + msg);
-      }
-    }
-  });
+  // Magic link disabled (OTP code is used instead)
+  btnSendLink.hidden = true;
+  btnSendLink.disabled = true;
 }
-
-
-// ✅ Enviar código (Email OTP) — el usuario NO necesita abrir links.
-if(btnSendCode){
-  btnSendCode.addEventListener("click", async () => {
-    const email = (authEmailEl?.value || "").trim();
-    if(!supabaseClient){
-      showAuthMsg("⚠️ Supabase no está listo. Revisa internet y configuración.");
-      return;
-    }
-    if(!email || !email.includes("@")){
-      showAuthMsg("Escribe un email válido.");
-      return;
-    }
-    // Cooldown anti-spam
-    if(otpCooldownRemainingMs() > 0){
-      updateOtpCooldownUI();
-      return;
-    }
-
-    showAuthMsg("Enviando código…");
-    try{
-      btnSendCode.disabled = true;
-      // En Supabase debes activar Email OTP para que llegue un código de 6 dígitos.
-      const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ shouldCreateUser:true } });
-      if(error) throw error;
-      beginOtpCooldown();
-      showOtpUI(true);
-      showAuthMsg("✅ Revisa tu correo y escribe aquí el código de 6 dígitos.");
-    }catch(err){
-      showAuthMsg("❌ " + (err?.message || "No se pudo enviar el código."));
-    }finally{
-      btnSendCode.disabled = false;
-      updateOtpCooldownUI();
-    }
-  });
-}
-
-if(btnVerifyCode){
-  btnVerifyCode.addEventListener("click", async () => {
-    const email = (authEmailEl?.value || "").trim();
-    const code = (inpCode?.value || "").trim();
-    if(!supabaseClient){
-      showAuthMsg("⚠️ Supabase no está listo.");
-      return;
-    }
-    if(!email || !email.includes("@")){
-      showAuthMsg("Escribe tu email.");
-      return;
-    }
-    if(!code){
-      showAuthMsg("Escribe el código.");
-      return;
-    }
-
-    showAuthMsg("Verificando…");
-    try{
-      // Algunos proyectos usan type: "email". Otros esperan "magiclink". Probamos ambos.
-      let resp = await supabaseClient.auth.verifyOtp({ email, token: code, type: "email" });
-      if(resp?.error){
-        const msg = String(resp.error.message || "");
-        if(/type/i.test(msg) || /invalid/i.test(msg)){
-          resp = await supabaseClient.auth.verifyOtp({ email, token: code, type: "magiclink" });
-        }
-      }
-      if(resp?.error) throw resp.error;
-
-      showOtpUI(false);
-      inpCode.value = "";
-      showAuthMsg("✅ Sesión iniciada.");
-      hideMagicLinkCopy();
-      // Refresh UI
-      await refreshMe().catch(()=>{});
-      renderAccountUI();
-      closeAccountModal();
-    }catch(err){
-      showAuthMsg("❌ " + (err?.message || "Código inválido."));
-    }
-  });
-}
-
 
 if(btnLogout){
   btnLogout.addEventListener("click", async () => {
@@ -642,6 +596,11 @@ if(btnLogout){
 }
 
 async function startCheckout(){
+  // refresh session to avoid "token expired/invalid" on installed apps
+  try{
+    const { data } = await supabaseClient?.auth?.getSession?.() || {};
+    authSession = data?.session || authSession;
+  }catch(_){ }
   if(!authSession?.access_token){
     openAccountModal();
     showAuthMsg("Entra con tu email para poder suscribirte.");
@@ -699,13 +658,6 @@ if(btnManage){
 
 // Init auth early
 initSupabaseAuth().catch(()=>{});
-
-// Prefer code-based login (avoid magic links in installed app)
-try{
-  if(btnSendLink) btnSendLink.style.display = "none";
-  hideMagicLinkCopy();
-}catch(_){}
-
 setPlanPillUI();
 
 // Post-checkout UX
@@ -1093,7 +1045,8 @@ function buildWordIndex(container){
     const start = Number(el.dataset.start);
     const end = Number(el.dataset.end);
     if(Number.isFinite(start) && Number.isFinite(end)){
-      arr.push({ start, end, el, word: (el.dataset.word || el.textContent || "") });
+      const word = (el.dataset.word || el.textContent || "");
+      arr.push({ start, end, word, el });
     }
   });
   arr.sort((a,b) => a.start - b.start);
@@ -1271,7 +1224,6 @@ u.onboundary = (e) => {
 
 // Timeline tick stays as fallback (some voices don't emit boundaries reliably).
 
-    let timer = null;
     const cleanup = () => {
       stopTick();
       stopLogoReact();
