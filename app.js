@@ -688,7 +688,7 @@ async function startCheckout(){
     showBillingMsg("❌ " + (err?.message || "No se pudo abrir el checkout."));
     // Fallback: abrir Payment Link si el endpoint de checkout no responde
     try{
-      if(typeof PRO_PAYMENT_LINK==="string" && PRO_PAYMENT_LINK.startsWith("https://buy.stripe.com/")){
+      if(typeof PRO_PAYMENT_LINK==="string" && PRO_PAYMENT_LINK.startsWith("https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00/")){
         window.location.href = PRO_PAYMENT_LINK;
       }
     }catch(_){ }
