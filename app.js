@@ -12,9 +12,8 @@ function apiEndpoint(name){
 }
 
 /* ---------- Public URLs ---------- */
-let PUBLIC_APP_URL = ""; // canonical app origin for au
+let PUBLIC_APP_URL = ""; // canonical app origin for auth redirects (set from /api/config)
 const PRO_PAYMENT_LINK = "https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00"; // Stripe Payment Link for PRO
-th redirects (set from /api/config)
 
 
 /* ---------- ARGUS_DEBUG: capture errors so the app never "dies" silently ---------- */
@@ -666,15 +665,11 @@ if(btnLogout){
 }
 
 async function startCheckout(){
-  // We prefer our own Checkout Session (server-created) because it can automatically
-  // link the subscription to the logged-in user. If the server endpoint isn't available,
-  // we fall back to the Stripe Payment Link so you can sell immediately.
   if(!authSession?.access_token){
     openAccountModal();
     showAuthMsg("Entra con tu email para poder suscribirte.");
     return;
   }
-
   showBillingMsg("Abriendo checkout…");
   try{
     const res = await fetch(apiEndpoint("create-checkout"), {
@@ -682,33 +677,21 @@ async function startCheckout(){
       headers: { "Content-Type":"application/json", ...authHeaders() },
       body: JSON.stringify({})
     });
-
-    if(res.ok){
-      const data = await res.json().catch(()=> ({}));
-      if(data?.url){
-        window.location.href = data.url;
-        return;
-      }
+    if(!res.ok){
+      const t = await res.text().catch(()=> "");
+      throw new Error(t || "checkout error");
     }
-
-    // If we reach here, server checkout isn't usable -> fallback to Payment Link.
-    if(typeof PRO_PAYMENT_LINK === "string" && PRO_PAYMENT_LINK.startsWith("https://buy.stripe.com/")){
-      showBillingMsg("Abriendo enlace de pago…");
-      window.location.href = PRO_PAYMENT_LINK;
-      return;
-    }
-
-    // Last resort: show error text from server (if any)
-    const t = await res.text().catch(()=> "");
-    throw new Error(t || "No se pudo abrir el checkout.");
+    const data = await res.json();
+    if(data?.url) window.location.href = data.url;
+    else throw new Error("No checkout url");
   }catch(err){
-    // Network / timeout / other failure -> fallback to Payment Link if available
-    if(typeof PRO_PAYMENT_LINK === "string" && PRO_PAYMENT_LINK.startsWith("https://buy.stripe.com/")){
-      showBillingMsg("Abriendo enlace de pago…");
-      window.location.href = PRO_PAYMENT_LINK;
-      return;
-    }
     showBillingMsg("❌ " + (err?.message || "No se pudo abrir el checkout."));
+    // Fallback: abrir Payment Link si el endpoint de checkout no responde
+    try{
+      if(typeof PRO_PAYMENT_LINK==="string" && PRO_PAYMENT_LINK.startsWith("https://buy.stripe.com/")){
+        window.location.href = PRO_PAYMENT_LINK;
+      }
+    }catch(_){ }
   }
 }
 
@@ -750,13 +733,12 @@ setPlanPillUI();
 // Post-checkout UX
 try{
   const url = new URL(window.location.href);
-  const hadSuccess = (url.searchParams.get("success")==="1") || (url.searchParams.get("paid")==="1");
+  const hadSuccess = (url.searchParams.get("success")==="1");
   const hadCanceled = (url.searchParams.get("canceled")==="1");
 
   if(hadSuccess || hadCanceled){
     // Clean the URL so the message doesn't loop forever on refresh.
     url.searchParams.delete("success");
-    url.searchParams.delete("paid");
     url.searchParams.delete("canceled");
     history.replaceState({}, document.title, url.pathname + (url.search ? url.search : ""));
   }
