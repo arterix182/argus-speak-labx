@@ -175,7 +175,7 @@ if(!quota.allowed){
       return new Response("Missing OPENAI_API_KEY env var", { status: 500 });
     }
 
-    const model = process.env.OPENAI_MODEL || "gpt-5";
+    const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
     const store = false;
 
     const prompts = buildPrompt(task, payload);
@@ -191,17 +191,36 @@ if(!quota.allowed){
         { role:"user", content: prompts.input }
       ],
       // Ask for JSON when needed; individual tasks instruct strict JSON.
-      text: { format: { type: "text" } }
+      text: { format: { type: "text" } },
+      temperature: 0.2,
+      max_output_tokens: clampInt(process.env.OPENAI_MAX_OUTPUT_TOKENS, 800)
     };
 
-    const r = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${key}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
+    // ⏱️ Timeout para evitar que Netlify mate la respuesta por inactividad
+    const ctrl = new AbortController();
+    const timeoutMs = clampInt(process.env.OPENAI_TIMEOUT_MS, 24000); // 24s
+    const tmr = setTimeout(()=> ctrl.abort(), timeoutMs);
+
+    let r;
+    try{
+      r = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: {
+          "Authorization": `Bearer ${key}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
+    }catch(err){
+      await refundDailyQuota(s.user.id, today);
+      const msg = (err?.name === "AbortError")
+        ? "timeout"
+        : (err?.message || "OpenAI request failed");
+      return new Response(JSON.stringify({ error: "ai_timeout", message: msg }), { status: 504, headers: { "Content-Type":"application/json" }});
+    }finally{
+      clearTimeout(tmr);
+    }
 
     const json = await r.json().catch(()=> ({}));
     if(!r.ok){

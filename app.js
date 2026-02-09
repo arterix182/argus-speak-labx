@@ -1333,11 +1333,29 @@ function setBusy(btn, busy, label){
 
 async function callAI(task, payload){
   const headers = { "Content-Type":"application/json", ...authHeaders() };
-  const res = await fetch(apiEndpoint("ai"), {
-    method:"POST",
-    headers,
-    body: JSON.stringify({ task, payload })
-  });
+
+  // ⏱️ Evita que el navegador se quede colgado hasta que la red "muera" sola
+  const ctrl = new AbortController();
+  const timeoutMs = 25000; // ajustable si quieres (25s)
+  const tmr = setTimeout(()=> ctrl.abort(), timeoutMs);
+
+  let res;
+  try{
+    res = await fetch(apiEndpoint("ai"), {
+      method:"POST",
+      headers,
+      body: JSON.stringify({ task, payload }),
+      signal: ctrl.signal
+    });
+  }catch(err){
+    clearTimeout(tmr);
+    const msg = (err?.name === "AbortError")
+      ? "⏳ La IA tardó demasiado (timeout). Intenta de nuevo o usa un texto más corto."
+      : ("❌ Error de red al llamar IA: " + (err?.message || err));
+    throw new Error(msg);
+  }finally{
+    clearTimeout(tmr);
+  }
 
   if(!res.ok){
     const t = await res.text().catch(()=> "");
@@ -1352,9 +1370,24 @@ async function callAI(task, payload){
       try{ clearSupabaseStorage(); }catch(_){}
       try{ location.reload(); }catch(_){}
     }
-    throw new Error(t || `AI error (${res.status})`);
+    const looksHtml = /<html|<head|<title|<body/i.test(t);
+    const isInactivity = /Inactivity Timeout/i.test(t);
+    const friendly = isInactivity
+      ? "⏳ La IA tardó demasiado y el servidor cortó la conexión (Inactivity Timeout). Intenta otra vez o reduce el texto."
+      : looksHtml
+        ? "⏳ La IA tardó demasiado y el servidor devolvió una página de error. Intenta otra vez."
+        : (t || `AI error (${res.status})`);
+
+    throw new Error(friendly);
   }
-  return await res.json();
+
+  // A veces los proxies devuelven texto plano; intenta JSON y cae a texto
+  const ct = (res.headers.get("content-type")||"").toLowerCase();
+  if(ct.includes("application/json")){
+    return await res.json();
+  }
+  const txt = await res.text().catch(()=> "");
+  return { text: txt }; 
 }
 
 function safeHtml(s){
