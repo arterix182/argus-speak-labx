@@ -141,6 +141,8 @@ function openAccountModal(){
   document.body.style.overflow = "hidden";
   showAuthMsg("");
   showBillingMsg("");
+  // Show OTP box by default (users can paste the code without leaving the app)
+  try{ showOtpUI(true); }catch(_){ }
   // refresh status when opening
   refreshMe().catch(()=>{});
 }
@@ -544,7 +546,8 @@ if(btnSendLink){
       const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
       if(error) throw error;
       beginOtpCooldown();
-      showAuthMsg("✅ Listo. Revisa tu correo y abre el link para entrar.");
+      showOtpUI(true);
+      showAuthMsg("✅ Listo. Revisa tu correo: pega aquí el código (recomendado) o abre el link.");
     }catch(err){
       const msg = (err?.message || "No se pudo enviar el link.");
       const isRate = /rate\s*limit/i.test(msg);
@@ -1115,8 +1118,9 @@ function buildWordIndex(container){
   container.querySelectorAll(".word").forEach(el => {
     const start = Number(el.dataset.start);
     const end = Number(el.dataset.end);
+    const word = (el.textContent || "").trim();
     if(Number.isFinite(start) && Number.isFinite(end)){
-      arr.push({ start, end, el });
+      arr.push({ start, end, el, word });
     }
   });
   arr.sort((a,b) => a.start - b.start);
