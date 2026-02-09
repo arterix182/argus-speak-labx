@@ -83,6 +83,14 @@ const btnSendLink = $("#btnSendLink");
 const btnSendCode = $("#btnSendCode");
 const otpField = $("#otpField");
 const inpCode = $("#authCode");
+if(inpCode){
+  // Accept 6–12 digits (Supabase may send 6 or 8+ digits)
+  inpCode.setAttribute("maxlength","12");
+  inpCode.maxLength = 12;
+  inpCode.type = "text";
+  inpCode.inputMode = "numeric";
+  inpCode.autocomplete = "one-time-code";
+}
 const btnVerifyCode = $("#btnVerifyCode");
 const btnLogout = $("#btnLogout");
 const btnSubscribe = $("#btnSubscribe");
@@ -1289,7 +1297,6 @@ u.onboundary = (e) => {
     const cleanup = () => {
       stopTick();
       stopLogoReact();
-      if(timer){ window.clearInterval(timer); timer = null; }
       if(activeSpeech?.container === container){
         clearReadingUI(container);
         activeSpeech = null;
