@@ -12,7 +12,9 @@ function apiEndpoint(name){
 }
 
 /* ---------- Public URLs ---------- */
-let PUBLIC_APP_URL = ""; // canonical app origin for auth redirects (set from /api/config)
+let PUBLIC_APP_URL = ""; // canonical app origin for au
+const PRO_PAYMENT_LINK = "https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00"; // Stripe Payment Link for PRO
+th redirects (set from /api/config)
 
 
 /* ---------- ARGUS_DEBUG: capture errors so the app never "dies" silently ---------- */
@@ -83,14 +85,6 @@ const btnSendLink = $("#btnSendLink");
 const btnSendCode = $("#btnSendCode");
 const otpField = $("#otpField");
 const inpCode = $("#authCode");
-if(inpCode){
-  // Accept 6–12 digits (Supabase may send 6 or 8+ digits)
-  inpCode.setAttribute("maxlength","12");
-  inpCode.maxLength = 12;
-  inpCode.type = "text";
-  inpCode.inputMode = "numeric";
-  inpCode.autocomplete = "one-time-code";
-}
 const btnVerifyCode = $("#btnVerifyCode");
 const btnLogout = $("#btnLogout");
 const btnSubscribe = $("#btnSubscribe");
@@ -141,8 +135,6 @@ function openAccountModal(){
   document.body.style.overflow = "hidden";
   showAuthMsg("");
   showBillingMsg("");
-  // Show OTP box by default (users can paste the code without leaving the app)
-  try{ showOtpUI(true); }catch(_){ }
   // refresh status when opening
   refreshMe().catch(()=>{});
 }
@@ -546,8 +538,7 @@ if(btnSendLink){
       const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
       if(error) throw error;
       beginOtpCooldown();
-      showOtpUI(true);
-      showAuthMsg("✅ Listo. Revisa tu correo: pega aquí el código (recomendado) o abre el link.");
+      showAuthMsg("✅ Listo. Revisa tu correo y abre el link para entrar.");
     }catch(err){
       const msg = (err?.message || "No se pudo enviar el link.");
       const isRate = /rate\s*limit/i.test(msg);
@@ -675,11 +666,15 @@ if(btnLogout){
 }
 
 async function startCheckout(){
+  // We prefer our own Checkout Session (server-created) because it can automatically
+  // link the subscription to the logged-in user. If the server endpoint isn't available,
+  // we fall back to the Stripe Payment Link so you can sell immediately.
   if(!authSession?.access_token){
     openAccountModal();
     showAuthMsg("Entra con tu email para poder suscribirte.");
     return;
   }
+
   showBillingMsg("Abriendo checkout…");
   try{
     const res = await fetch(apiEndpoint("create-checkout"), {
@@ -687,14 +682,32 @@ async function startCheckout(){
       headers: { "Content-Type":"application/json", ...authHeaders() },
       body: JSON.stringify({})
     });
-    if(!res.ok){
-      const t = await res.text().catch(()=> "");
-      throw new Error(t || "checkout error");
+
+    if(res.ok){
+      const data = await res.json().catch(()=> ({}));
+      if(data?.url){
+        window.location.href = data.url;
+        return;
+      }
     }
-    const data = await res.json();
-    if(data?.url) window.location.href = data.url;
-    else throw new Error("No checkout url");
+
+    // If we reach here, server checkout isn't usable -> fallback to Payment Link.
+    if(typeof PRO_PAYMENT_LINK === "string" && PRO_PAYMENT_LINK.startsWith("https://buy.stripe.com/")){
+      showBillingMsg("Abriendo enlace de pago…");
+      window.location.href = PRO_PAYMENT_LINK;
+      return;
+    }
+
+    // Last resort: show error text from server (if any)
+    const t = await res.text().catch(()=> "");
+    throw new Error(t || "No se pudo abrir el checkout.");
   }catch(err){
+    // Network / timeout / other failure -> fallback to Payment Link if available
+    if(typeof PRO_PAYMENT_LINK === "string" && PRO_PAYMENT_LINK.startsWith("https://buy.stripe.com/")){
+      showBillingMsg("Abriendo enlace de pago…");
+      window.location.href = PRO_PAYMENT_LINK;
+      return;
+    }
     showBillingMsg("❌ " + (err?.message || "No se pudo abrir el checkout."));
   }
 }
@@ -737,12 +750,13 @@ setPlanPillUI();
 // Post-checkout UX
 try{
   const url = new URL(window.location.href);
-  const hadSuccess = (url.searchParams.get("success")==="1");
+  const hadSuccess = (url.searchParams.get("success")==="1") || (url.searchParams.get("paid")==="1");
   const hadCanceled = (url.searchParams.get("canceled")==="1");
 
   if(hadSuccess || hadCanceled){
     // Clean the URL so the message doesn't loop forever on refresh.
     url.searchParams.delete("success");
+    url.searchParams.delete("paid");
     url.searchParams.delete("canceled");
     history.replaceState({}, document.title, url.pathname + (url.search ? url.search : ""));
   }
@@ -1118,9 +1132,8 @@ function buildWordIndex(container){
   container.querySelectorAll(".word").forEach(el => {
     const start = Number(el.dataset.start);
     const end = Number(el.dataset.end);
-    const word = (el.textContent || "").trim();
     if(Number.isFinite(start) && Number.isFinite(end)){
-      arr.push({ start, end, el, word });
+      arr.push({ start, end, el });
     }
   });
   arr.sort((a,b) => a.start - b.start);
@@ -1301,6 +1314,7 @@ u.onboundary = (e) => {
     const cleanup = () => {
       stopTick();
       stopLogoReact();
+      if(timer){ window.clearInterval(timer); timer = null; }
       if(activeSpeech?.container === container){
         clearReadingUI(container);
         activeSpeech = null;
@@ -1333,29 +1347,11 @@ function setBusy(btn, busy, label){
 
 async function callAI(task, payload){
   const headers = { "Content-Type":"application/json", ...authHeaders() };
-
-  // ⏱️ Evita que el navegador se quede colgado hasta que la red "muera" sola
-  const ctrl = new AbortController();
-  const timeoutMs = 25000; // ajustable si quieres (25s)
-  const tmr = setTimeout(()=> ctrl.abort(), timeoutMs);
-
-  let res;
-  try{
-    res = await fetch(apiEndpoint("ai"), {
-      method:"POST",
-      headers,
-      body: JSON.stringify({ task, payload }),
-      signal: ctrl.signal
-    });
-  }catch(err){
-    clearTimeout(tmr);
-    const msg = (err?.name === "AbortError")
-      ? "⏳ La IA tardó demasiado (timeout). Intenta de nuevo o usa un texto más corto."
-      : ("❌ Error de red al llamar IA: " + (err?.message || err));
-    throw new Error(msg);
-  }finally{
-    clearTimeout(tmr);
-  }
+  const res = await fetch(apiEndpoint("ai"), {
+    method:"POST",
+    headers,
+    body: JSON.stringify({ task, payload })
+  });
 
   if(!res.ok){
     const t = await res.text().catch(()=> "");
@@ -1370,24 +1366,9 @@ async function callAI(task, payload){
       try{ clearSupabaseStorage(); }catch(_){}
       try{ location.reload(); }catch(_){}
     }
-    const looksHtml = /<html|<head|<title|<body/i.test(t);
-    const isInactivity = /Inactivity Timeout/i.test(t);
-    const friendly = isInactivity
-      ? "⏳ La IA tardó demasiado y el servidor cortó la conexión (Inactivity Timeout). Intenta otra vez o reduce el texto."
-      : looksHtml
-        ? "⏳ La IA tardó demasiado y el servidor devolvió una página de error. Intenta otra vez."
-        : (t || `AI error (${res.status})`);
-
-    throw new Error(friendly);
+    throw new Error(t || `AI error (${res.status})`);
   }
-
-  // A veces los proxies devuelven texto plano; intenta JSON y cae a texto
-  const ct = (res.headers.get("content-type")||"").toLowerCase();
-  if(ct.includes("application/json")){
-    return await res.json();
-  }
-  const txt = await res.text().catch(()=> "");
-  return { text: txt }; 
+  return await res.json();
 }
 
 function safeHtml(s){
