@@ -448,9 +448,9 @@ function renderAccountUI(){
   if(btnSendCode) btnSendCode.disabled = !supabaseClient;
 
   // Subscription controls
+  // Keep "Suscribirme" visible so you can always open the live checkout link.
   if(btnManage) btnManage.hidden = !meState.pro;
-  if(btnSubscribe) btnSubscribe.hidden = meState.pro;
-
+  if(btnSubscribe) btnSubscribe.hidden = false;
   setPlanPillUI();
 
   // Keep the send-link button under a short cooldown to avoid Supabase email rate limits.
@@ -687,7 +687,7 @@ async function startCheckout(){
   // Si decidimos vender sin backend, abrimos el enlace directo.
   if(typeof USE_PAYMENT_LINK_ONLY !== "undefined" && USE_PAYMENT_LINK_ONLY){
     showBillingMsg("Abriendo enlace de pago…");
-    try{ window.open("https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00", "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
+    try{ window.open(PRO_PAYMENT_LINK, "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
     return;
   }
 
@@ -709,7 +709,7 @@ async function startCheckout(){
   }catch(err){
     // Si el backend falla, no frenamos la venta: abrimos el Payment Link.
     showBillingMsg("⚠️ Checkout no disponible. Abriendo enlace de pago…");
-    try{ window.open("https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00", "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
+    try{ window.open(PRO_PAYMENT_LINK, "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
   }
 }
 
@@ -730,8 +730,18 @@ async function openPortal(){
       throw new Error(t || "portal error");
     }
     const data = await res.json();
-    if(data?.url) window.location.href = data.url;
-    else throw new Error("No portal url");
+    if(data?.url){
+      const portalUrl = String(data.url);
+      // If the portal is still in TEST mode, don't trap the user there—open the live Payment Link instead.
+      if(/\/test/i.test(portalUrl) || /session\/test_/i.test(portalUrl)){
+        showBillingMsg("⚠️ Portal en modo prueba. Abriendo enlace de pago…");
+        try{ window.open(PRO_PAYMENT_LINK, "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
+        return;
+      }
+      window.location.href = portalUrl;
+    }else{
+      throw new Error("No portal url");
+    }
   }catch(err){
     showBillingMsg("❌ " + (err?.message || "No se pudo abrir el portal."));
   }
