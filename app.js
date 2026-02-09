@@ -1,3 +1,5 @@
+const PRO_PAYMENT_LINK = "https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00";
+const USE_PAYMENT_LINK_ONLY = true;
 const APP_VERSION = 'v15';
 /* ARGUS SPEAK LAB-X — Article + AI Prototype
    Client calls /api/ai (Netlify function) to keep OpenAI key secret.
@@ -13,7 +15,6 @@ function apiEndpoint(name){
 
 /* ---------- Public URLs ---------- */
 let PUBLIC_APP_URL = ""; // canonical app origin for auth redirects (set from /api/config)
-const PRO_PAYMENT_LINK = "https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00"; // Stripe Payment Link for PRO
 
 
 /* ---------- ARGUS_DEBUG: capture errors so the app never "dies" silently ---------- */
@@ -84,6 +85,14 @@ const btnSendLink = $("#btnSendLink");
 const btnSendCode = $("#btnSendCode");
 const otpField = $("#otpField");
 const inpCode = $("#authCode");
+if(inpCode){
+  // Accept 6–12 digits (Supabase may send 6 or 8+ digits)
+  inpCode.setAttribute("maxlength","12");
+  inpCode.maxLength = 12;
+  inpCode.type = "text";
+  inpCode.inputMode = "numeric";
+  inpCode.autocomplete = "one-time-code";
+}
 const btnVerifyCode = $("#btnVerifyCode");
 const btnLogout = $("#btnLogout");
 const btnSubscribe = $("#btnSubscribe");
@@ -134,6 +143,8 @@ function openAccountModal(){
   document.body.style.overflow = "hidden";
   showAuthMsg("");
   showBillingMsg("");
+  // Show OTP box by default (users can paste the code without leaving the app)
+  try{ showOtpUI(true); }catch(_){ }
   // refresh status when opening
   refreshMe().catch(()=>{});
 }
@@ -537,7 +548,8 @@ if(btnSendLink){
       const { error } = await supabaseClient.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
       if(error) throw error;
       beginOtpCooldown();
-      showAuthMsg("✅ Listo. Revisa tu correo y abre el link para entrar.");
+      showOtpUI(true);
+      showAuthMsg("✅ Listo. Revisa tu correo: pega aquí el código (recomendado) o abre el link.");
     }catch(err){
       const msg = (err?.message || "No se pudo enviar el link.");
       const isRate = /rate\s*limit/i.test(msg);
@@ -665,11 +677,21 @@ if(btnLogout){
 }
 
 async function startCheckout(){
+  // ✅ Suscribirme (modo venta): abre tu Payment Link en Stripe (LIVE)
   if(!authSession?.access_token){
     openAccountModal();
     showAuthMsg("Entra con tu email para poder suscribirte.");
     return;
   }
+
+  // Si decidimos vender sin backend, abrimos el enlace directo.
+  if(typeof USE_PAYMENT_LINK_ONLY !== "undefined" && USE_PAYMENT_LINK_ONLY){
+    showBillingMsg("Abriendo enlace de pago…");
+    try{ window.open(PRO_PAYMENT_LINK, "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
+    return;
+  }
+
+  // (Opcional) Flujo original con backend (Checkout Session)
   showBillingMsg("Abriendo checkout…");
   try{
     const res = await fetch(apiEndpoint("create-checkout"), {
@@ -685,13 +707,9 @@ async function startCheckout(){
     if(data?.url) window.location.href = data.url;
     else throw new Error("No checkout url");
   }catch(err){
-    showBillingMsg("❌ " + (err?.message || "No se pudo abrir el checkout."));
-    // Fallback: abrir Payment Link si el endpoint de checkout no responde
-    try{
-      if(typeof PRO_PAYMENT_LINK==="string" && PRO_PAYMENT_LINK.startsWith("https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00/")){
-        window.location.href = PRO_PAYMENT_LINK;
-      }
-    }catch(_){ }
+    // Si el backend falla, no frenamos la venta: abrimos el Payment Link.
+    showBillingMsg("⚠️ Checkout no disponible. Abriendo enlace de pago…");
+    try{ window.open(PRO_PAYMENT_LINK, "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
   }
 }
 
@@ -1114,8 +1132,9 @@ function buildWordIndex(container){
   container.querySelectorAll(".word").forEach(el => {
     const start = Number(el.dataset.start);
     const end = Number(el.dataset.end);
+    const word = (el.textContent || "").trim();
     if(Number.isFinite(start) && Number.isFinite(end)){
-      arr.push({ start, end, el });
+      arr.push({ start, end, el, word });
     }
   });
   arr.sort((a,b) => a.start - b.start);
@@ -1296,7 +1315,6 @@ u.onboundary = (e) => {
     const cleanup = () => {
       stopTick();
       stopLogoReact();
-      if(timer){ window.clearInterval(timer); timer = null; }
       if(activeSpeech?.container === container){
         clearReadingUI(container);
         activeSpeech = null;
@@ -1329,11 +1347,29 @@ function setBusy(btn, busy, label){
 
 async function callAI(task, payload){
   const headers = { "Content-Type":"application/json", ...authHeaders() };
-  const res = await fetch(apiEndpoint("ai"), {
-    method:"POST",
-    headers,
-    body: JSON.stringify({ task, payload })
-  });
+
+  // ⏱️ Evita que el navegador se quede colgado hasta que la red "muera" sola
+  const ctrl = new AbortController();
+  const timeoutMs = 25000; // ajustable si quieres (25s)
+  const tmr = setTimeout(()=> ctrl.abort(), timeoutMs);
+
+  let res;
+  try{
+    res = await fetch(apiEndpoint("ai"), {
+      method:"POST",
+      headers,
+      body: JSON.stringify({ task, payload }),
+      signal: ctrl.signal
+    });
+  }catch(err){
+    clearTimeout(tmr);
+    const msg = (err?.name === "AbortError")
+      ? "⏳ La IA tardó demasiado (timeout). Intenta de nuevo o usa un texto más corto."
+      : ("❌ Error de red al llamar IA: " + (err?.message || err));
+    throw new Error(msg);
+  }finally{
+    clearTimeout(tmr);
+  }
 
   if(!res.ok){
     const t = await res.text().catch(()=> "");
@@ -1348,9 +1384,24 @@ async function callAI(task, payload){
       try{ clearSupabaseStorage(); }catch(_){}
       try{ location.reload(); }catch(_){}
     }
-    throw new Error(t || `AI error (${res.status})`);
+    const looksHtml = /<html|<head|<title|<body/i.test(t);
+    const isInactivity = /Inactivity Timeout/i.test(t);
+    const friendly = isInactivity
+      ? "⏳ La IA tardó demasiado y el servidor cortó la conexión (Inactivity Timeout). Intenta otra vez o reduce el texto."
+      : looksHtml
+        ? "⏳ La IA tardó demasiado y el servidor devolvió una página de error. Intenta otra vez."
+        : (t || `AI error (${res.status})`);
+
+    throw new Error(friendly);
   }
-  return await res.json();
+
+  // A veces los proxies devuelven texto plano; intenta JSON y cae a texto
+  const ct = (res.headers.get("content-type")||"").toLowerCase();
+  if(ct.includes("application/json")){
+    return await res.json();
+  }
+  const txt = await res.text().catch(()=> "");
+  return { text: txt }; 
 }
 
 function safeHtml(s){
