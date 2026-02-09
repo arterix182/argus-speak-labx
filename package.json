@@ -1,0 +1,8 @@
+{
+  "name": "arguslab2x",
+  "private": true,
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.0",
+    "stripe": "^14.0.0"
+  }
+}
