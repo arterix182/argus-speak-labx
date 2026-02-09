@@ -687,7 +687,7 @@ async function startCheckout(){
   // Si decidimos vender sin backend, abrimos el enlace directo.
   if(typeof USE_PAYMENT_LINK_ONLY !== "undefined" && USE_PAYMENT_LINK_ONLY){
     showBillingMsg("Abriendo enlace de pago…");
-    try{ window.open(PRO_PAYMENT_LINK, "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
+    try{ window.open("https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00", "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
     return;
   }
 
@@ -709,7 +709,7 @@ async function startCheckout(){
   }catch(err){
     // Si el backend falla, no frenamos la venta: abrimos el Payment Link.
     showBillingMsg("⚠️ Checkout no disponible. Abriendo enlace de pago…");
-    try{ window.open(PRO_PAYMENT_LINK, "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
+    try{ window.open("https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00", "_blank"); }catch{ window.location.href = PRO_PAYMENT_LINK; }
   }
 }
 
