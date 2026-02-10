@@ -124,7 +124,7 @@ async function refundDailyQuota(userId, today){
 }
 
 
-export default async (req) => {
+async function handler(req){
   try{
     if(req.method !== "POST"){
       return new Response("Method not allowed", { status: 405 });
@@ -427,3 +427,32 @@ Incluye: significado, 1-2 puntos gramaticales, y 1 reescritura más simple.
 
   return null;
 }
+
+// Netlify Node Function wrapper: adapts Netlify event/context to Fetch API Request/Response
+exports.handler = async (event, context) => {
+  const proto = (event.headers && (event.headers["x-forwarded-proto"] || event.headers["X-Forwarded-Proto"])) || "https";
+  const host  = (event.headers && (event.headers.host || event.headers.Host)) || "localhost";
+  const qs = event.rawQuery ? `?${event.rawQuery}` : "";
+  const url = `${proto}://${host}${event.path || ""}${qs}`;
+
+  const init = {
+    method: event.httpMethod || "GET",
+    headers: event.headers || {},
+  };
+  if(init.method !== "GET" && init.method !== "HEAD" && typeof event.body === "string"){
+    init.body = event.isBase64Encoded ? Buffer.from(event.body, "base64") : event.body;
+  }
+
+  const req = new Request(url, init);
+  const res = await handler(req);
+
+  const headersObj = {};
+  res.headers.forEach((v, k) => { headersObj[k] = v; });
+  const body = await res.text();
+
+  return {
+    statusCode: res.status,
+    headers: headersObj,
+    body
+  };
+};

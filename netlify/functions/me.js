@@ -44,7 +44,7 @@ function isPro(profile){
   return true;
 }
 
-export default async (req) => {
+async function handler(req){
   try{
     const s = await getSupabaseUser(req);
     if(s?.error) return new Response(s.error, { status: s.status || 401 });
@@ -65,4 +65,33 @@ export default async (req) => {
   }catch(err){
     return new Response(err?.message || "me error", { status: 500 });
   }
+};
+
+// Netlify Node Function wrapper: adapts Netlify event/context to Fetch API Request/Response
+exports.handler = async (event, context) => {
+  const proto = (event.headers && (event.headers["x-forwarded-proto"] || event.headers["X-Forwarded-Proto"])) || "https";
+  const host  = (event.headers && (event.headers.host || event.headers.Host)) || "localhost";
+  const qs = event.rawQuery ? `?${event.rawQuery}` : "";
+  const url = `${proto}://${host}${event.path || ""}${qs}`;
+
+  const init = {
+    method: event.httpMethod || "GET",
+    headers: event.headers || {},
+  };
+  if(init.method !== "GET" && init.method !== "HEAD" && typeof event.body === "string"){
+    init.body = event.isBase64Encoded ? Buffer.from(event.body, "base64") : event.body;
+  }
+
+  const req = new Request(url, init);
+  const res = await handler(req);
+
+  const headersObj = {};
+  res.headers.forEach((v, k) => { headersObj[k] = v; });
+  const body = await res.text();
+
+  return {
+    statusCode: res.status,
+    headers: headersObj,
+    body
+  };
 };
