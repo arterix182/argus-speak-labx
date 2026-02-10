@@ -158,13 +158,10 @@
       `Topic: ${state.topic || "daily life"}.`,
       "Ask ONE short question to start. Keep it A2-B1 friendly.",
       "Make it DIFFERENT each time (new scenario, new angle).",
-      recentQs.length ? ("Do NOT repeat any of these questions:
-- " + recentQs.join("
-- ")) : "",
+      recentQs.length ? `Do NOT repeat any of these questions:\n- ${recentQs.join("\n- ")}` : "",
       `Nonce: ${nonce()}`,
       "Return only the question."
-    ].filter(Boolean).join("
-");
+    ].filter(Boolean).join("\n");
 
 
     const data = await callAI("ask", { question: qPrompt, context: "" });
@@ -310,7 +307,10 @@
   async function start(){
     resetUI();
     state.topic = (topicEl()?.value || "").trim();
-    if(!state.topic) state.topic = "daily life";
+    if(!state.topic) {
+      state.topic = pickTopic();
+      if(topicEl()) topicEl().value = state.topic;
+    }
     // Asegura auth inicializado (si existe) pero no es obligatorio
     try{ window.LABX?.ensureAuthInit?.(); }catch(e){}
     await step1_shadowing();
