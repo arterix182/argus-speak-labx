@@ -36,6 +36,51 @@
     convo: [],
     shadowSentence: ""
   };
+  // ---------- Variety helpers ----------
+  const __TOPIC_BANK = [
+    "daily life","work","travel","food","movies","music","sports","technology","health",
+    "family","shopping","small talk","weather","plans","hobbies","learning","problem solving",
+    "customer service","meetings","interviews","introductions"
+  ];
+  const __TRAINING_META_KEY = "labx_training_meta_v1";
+  const __TRAINING_QH_KEY = "labx_training_questions_v1";
+
+  function __loadJson(key, fallback){
+    try{ return JSON.parse(localStorage.getItem(key)||"") || fallback; }catch(e){ return fallback; }
+  }
+  function __saveJson(key, obj){
+    try{ localStorage.setItem(key, JSON.stringify(obj)); }catch(e){}
+  }
+  function __normalize(s){ return String(s||"").trim().replace(/\s+/g," ").toLowerCase(); }
+
+  // Rotamos tema cuando el usuario deja el campo vacío, para que NO repita siempre lo mismo.
+  function pickTopic(){
+    const meta = __loadJson(__TRAINING_META_KEY, { date:"", idx:0 });
+    const today = new Date().toISOString().slice(0,10);
+    let idx = meta.idx || 0;
+    if(meta.date !== today){ idx = 0; }
+    const topic = __TOPIC_BANK[idx % __TOPIC_BANK.length];
+    __saveJson(__TRAINING_META_KEY, { date: today, idx: idx + 1 });
+    return topic;
+  }
+
+  function getRecentQuestions(maxN){
+    const arr = __loadJson(__TRAINING_QH_KEY, []);
+    return Array.isArray(arr) ? arr.slice(-maxN) : [];
+  }
+  function rememberQuestion(q){
+    const arr = getRecentQuestions(80);
+    const nq = __normalize(q);
+    if(!nq) return;
+    if(arr.length && __normalize(arr[arr.length-1]) === nq) return;
+    arr.push(q);
+    __saveJson(__TRAINING_QH_KEY, arr.slice(-80));
+  }
+
+  function nonce(){
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
+  }
+
 
   function setStep(n, label){
     state.step = n;
@@ -106,17 +151,26 @@
     if(autopsyBox()) autopsyBox().style.display = "none";
     if(repeatBox()) repeatBox().style.display = "none";
 
-    // Primera pregunta del coach
+    // Primera pregunta del coach (variada)
+    const recentQs = getRecentQuestions(12);
     const qPrompt = [
       "You are an English conversation partner and coach.",
       `Topic: ${state.topic || "daily life"}.`,
       "Ask ONE short question to start. Keep it A2-B1 friendly.",
+      "Make it DIFFERENT each time (new scenario, new angle).",
+      recentQs.length ? ("Do NOT repeat any of these questions:
+- " + recentQs.join("
+- ")) : "",
+      `Nonce: ${nonce()}`,
       "Return only the question."
-    ].join("\n");
+    ].filter(Boolean).join("
+");
+
 
     const data = await callAI("ask", { question: qPrompt, context: "" });
     const coachQ = (data?.answer || "").trim() || "Tell me about your day.";
     state.prompt = coachQ;
+    rememberQuestion(coachQ);
 
     log("Coach", coachQ);
 

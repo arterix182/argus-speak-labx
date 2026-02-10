@@ -321,10 +321,16 @@ Reglas:
   if(task === "daily_words"){
     const topic = String(payload?.topic || "daily");
     const n = Math.max(5, Math.min(15, Number(payload?.n || 10)));
+    const exclude = Array.isArray(payload?.exclude_words) ? payload.exclude_words : [];
+    const excl = exclude.map(x=>String(x||"").trim()).filter(Boolean).slice(0, 60);
     return {
       instructions: baseRules,
       input: `
 Genera ${n} palabras en inglés para el tema "${topic}".
+${excl.length ? ("NO repitas ninguna de estas palabras (ya usadas por el usuario):
+- " + excl.join("
+- ") + "
+") : ""}
 Devuelve EXACTO:
 {
   "words":[
@@ -333,6 +339,7 @@ Devuelve EXACTO:
 }
 Reglas:
 - Palabras útiles (no raras), mezcla sustantivos/verbos/adjetivos.
+- NO repitas palabras dentro de la misma lista.
 - example en inglés, corto y natural.
 - translation en español.
 `

@@ -1770,6 +1770,16 @@ $("#btnSummarize").addEventListener("click", async () => {
 const dailyKey = "argus_daily_v1";
 const dailyGrid = $("#dailyGrid");
 
+// Historial para evitar repetición (se guarda local)
+const dailyHistKey = "argus_daily_history_v1";
+function loadDailyHistory(){
+  try{ return JSON.parse(localStorage.getItem(dailyHistKey)||"[]") || []; }catch(e){ return []; }
+}
+function saveDailyHistory(arr){
+  try{ localStorage.setItem(dailyHistKey, JSON.stringify((arr||[]).slice(-200))); }catch(e){}
+}
+function normWord(w){ return String(w||"").trim().toLowerCase(); }
+
 
 function renderDaily(items){
   dailyGrid.innerHTML = "";
@@ -1976,8 +1986,40 @@ $("#btnGenerateDaily").addEventListener("click", async () => {
   const topic = $("#dailyTopic").value;
   setBusy($("#btnGenerateDaily"), true, "Generando…");
   try{
-    const data = await callAI("daily_words", { topic, n: 10 });
-    saveDaily({ date: new Date().toISOString().slice(0,10), topic, items: data.words.map(w => ({...w, status:"pending"})) });
+    const exclude_words = loadDailyHistory().slice(-80);
+    const data = await callAI("daily_words", { topic, n: 10, exclude_words });
+    // Limpieza: evita repetición (historial) y duplicados en la misma lista
+    const prevHist = loadDailyHistory();
+    const prevSet = new Set(prevHist.map(normWord));
+    const usedSet = new Set();
+    const cleaned = [];
+
+    const incoming = Array.isArray(data?.words) ? data.words : [];
+    // 1) primero: palabras nuevas que NO estén en historial
+    for(const w of incoming){
+      const ww = normWord(w?.word);
+      if(!ww || usedSet.has(ww)) continue;
+      if(prevSet.has(ww)) continue;
+      usedSet.add(ww);
+      cleaned.push(w);
+      if(cleaned.length >= 10) break;
+    }
+    // 2) si faltan: completa con las restantes (sin duplicados) para llegar a 10
+    if(cleaned.length < 10){
+      for(const w of incoming){
+        const ww = normWord(w?.word);
+        if(!ww || usedSet.has(ww)) continue;
+        usedSet.add(ww);
+        cleaned.push(w);
+        if(cleaned.length >= 10) break;
+      }
+    }
+
+    saveDaily({ date: new Date().toISOString().slice(0,10), topic, items: cleaned.map(w => ({...w, status:"pending"})) });
+
+    // Actualiza historial (para futuras generaciones)
+    saveDailyHistory(prevHist.concat(cleaned.map(w=> String(w?.word||"").trim())).filter(Boolean));
+
     renderDaily(loadDaily().items);
     setView("daily");
   }catch(err){
