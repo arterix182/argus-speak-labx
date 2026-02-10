@@ -327,10 +327,7 @@ Reglas:
       instructions: baseRules,
       input: `
 Genera ${n} palabras en inglés para el tema "${topic}".
-${excl.length ? ("NO repitas ninguna de estas palabras (ya usadas por el usuario):
-- " + excl.join("
-- ") + "
-") : ""}
+${excl.length ? `NO repitas ninguna de estas palabras (ya usadas por el usuario):\n- ${excl.join("\n- ")}\n` : ""}
 Devuelve EXACTO:
 {
   "words":[
