@@ -1,10 +1,32 @@
 const PRO_PAYMENT_LINK = "https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00";
 const USE_PAYMENT_LINK_ONLY = true;
-const APP_VERSION = 'v16';
+const APP_VERSION = 'v15';
 /* ARGUS SPEAK LAB-X — Article + AI Prototype
    Client calls /api/ai (Netlify function) to keep OpenAI key secret.
 */
 const $ = (q) => document.querySelector(q);
+
+// Pequeño loader de scripts (para cargar módulos bajo demanda sin bundler)
+function loadScriptOnce(src){
+  return new Promise((resolve, reject) => {
+    const key = `__loaded_${src}`;
+    if(window[key]) return resolve(true);
+    const s = document.createElement("script");
+    s.src = src;
+    s.async = true;
+    s.onload = () => { window[key] = true; resolve(true); };
+    s.onerror = () => reject(new Error("No se pudo cargar: " + src));
+    document.head.appendChild(s);
+  });
+}
+
+// Ejecuta algo cuando el navegador está "libre" (mejora arranque en móviles)
+function runWhenIdle(fn){
+  try{
+    if("requestIdleCallback" in window) return requestIdleCallback(fn, { timeout: 1500 });
+  }catch(e){}
+  return setTimeout(fn, 1200);
+}
 
 // API base autodetect: "/api" (with redirect) or "/.netlify/functions" (direct)
 let API_BASE = "/api";
@@ -109,6 +131,12 @@ let otpCooldownTimer = null;
 let supabaseClient = null;
 let authSession = null;
 let meState = { pro:false, status:"free", email:"Invitado" };
+// Exponer utilidades mínimas para módulos (sin romper encapsulación)
+window.LABX = window.LABX || {};
+window.LABX.getSupabase = () => supabaseClient;
+window.LABX.getSession = () => authSession;
+window.LABX.getMeState = () => meState;
+window.LABX.ensureAuthInit = () => { try{ return ensureAuthInit(); }catch(e){ return Promise.resolve(); } };
 
 function setPlanPillUI(){
   if(!planPill) return;
@@ -138,6 +166,8 @@ function showBillingMsg(text){
 }
 
 function openAccountModal(){
+  // Asegura auth listo cuando el usuario abre Cuenta
+  try{ ensureAuthInit(); }catch(e){}
   if(!accountModal) return;
   accountModal.hidden = false;
   document.body.style.overflow = "hidden";
@@ -250,29 +280,11 @@ async function fetchConfig(){
 }
 
 
-
-async function waitForSupabase(maxWaitMs=2500){
-  if(window.supabase) return true;
-  const start = Date.now();
-  // Give CDN fallback a chance before we disable everything
-  try{ showAuthMsg("⏳ Cargando Supabase…"); }catch(_){}
-  while(!window.supabase && (Date.now()-start) < maxWaitMs){
-    await new Promise(r => setTimeout(r, 50));
-  }
-  return !!window.supabase;
-}
-
 async function initSupabaseAuth(){
-  const ok = await waitForSupabase(2500);
-  if(!ok){
+  if(!window.supabase){
     showAuthMsg("⚠️ No se pudo cargar Supabase (revisa internet o bloqueador).");
     try{ btnSendLink && (btnSendLink.disabled = true); }catch(_){ }
     try{ btnSubscribe && (btnSubscribe.disabled = true); }catch(_){ }
-    // Tip: user can try again after disabling blockers
-    try{
-      const retry = document.getElementById("btnRetrySupabase");
-      if(retry){ retry.disabled = false; }
-    }catch(_){}
     return;
   }
   const cfg = await fetchConfig();
@@ -772,8 +784,14 @@ if(btnManage){
   btnManage.addEventListener("click", openPortal);
 }
 
-// Init auth early
-initSupabaseAuth().catch(()=>{});
+// Init auth: diferido para mejorar arranque en móviles (se inicializa al abrir Cuenta o en idle)
+let __authInitPromise = null;
+function ensureAuthInit(){
+  if(__authInitPromise) return __authInitPromise;
+  __authInitPromise = initSupabaseAuth().catch(()=>{});
+  return __authInitPromise;
+}
+runWhenIdle(()=> ensureAuthInit());
 setPlanPillUI();
 
 // Post-checkout UX
@@ -1035,7 +1053,27 @@ const views = {
   article: $("#view-article"),
   vocab: $("#view-vocab"),
   daily: $("#view-daily"),
+  training: $("#view-training"),
 };
+
+
+
+let __trainingLoaded = false;
+async function ensureTrainingLoaded(){
+  if(__trainingLoaded) return true;
+  __trainingLoaded = true;
+  try{
+    await loadScriptOnce("./training.js");
+    if(window.LABX_TRAINING && typeof window.LABX_TRAINING.init === "function"){
+      await window.LABX_TRAINING.init();
+    }
+    return true;
+  }catch(e){
+    console.warn(e);
+    try{ ARGUS_DEBUG.show(e?.message || String(e)); }catch{}
+    return false;
+  }
+}
 
 const tabs = [...document.querySelectorAll(".tab")];
 tabs.forEach(t => t.addEventListener("click", () => setView(t.dataset.view)));
@@ -1050,6 +1088,12 @@ function setView(key){
     console.warn(e);
     try{ ARGUS_DEBUG.show(e?.stack || e?.message || String(e)); }catch{}
   }
+
+  // Carga el módulo de Entrenamiento solo cuando se abre esa pestaña (mejora rendimiento)
+  if(key === "training"){
+    ensureTrainingLoaded().catch(()=>{});
+  }
+
   try{
     window.scrollTo({ top: 0, behavior: "smooth" });
   }catch(_){
@@ -1076,21 +1120,12 @@ if(btnInstall) btnInstall.addEventListener("click", async () => {
 });
 
 async function registerSW(){
-  if(!("serviceWorker" in navigator)) return;
-  try{
-    const reg = await navigator.serviceWorker.register("./sw.js");
-    // Ask browser to check for updates (helps avoid stale cache)
-    try{ await reg.update(); }catch(_){}
-    // Reload once when a new SW takes control
-    let reloaded = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if(reloaded) return;
-      reloaded = true;
-      location.reload();
-    });
-  }catch(_){}
+  if("serviceWorker" in navigator){
+    try{ await navigator.serviceWorker.register("./sw.js"); }catch(_){}
+  }
 }
 registerSW();
+
 /* ---------- Text rendering as clickable words ---------- */
 function tokenizeToSpans(text){
   const frag = document.createDocumentFragment();
@@ -1382,11 +1417,18 @@ function setBusy(btn, busy, label){
 }
 
 
+// Cancela solicitudes anteriores de IA para evitar congelamientos en móviles
+let __aiActiveController = null;
+
 async function callAI(task, payload){
   const headers = { "Content-Type":"application/json", ...authHeaders() };
 
+  // Si hay otra solicitud en vuelo, la cancelamos (el usuario normalmente quiere la última)
+  try{ if(__aiActiveController) __aiActiveController.abort(); }catch(e){}
+
   // ⏱️ Evita que el navegador se quede colgado hasta que la red "muera" sola
   const ctrl = new AbortController();
+  __aiActiveController = ctrl;
   const timeoutMs = 25000; // ajustable si quieres (25s)
   const tmr = setTimeout(()=> ctrl.abort(), timeoutMs);
 
@@ -1439,6 +1481,9 @@ async function callAI(task, payload){
   }
   const txt = await res.text().catch(()=> "");
   return { text: txt }; 
+
+  // Limpia referencia si esta era la solicitud activa
+  try{ if(__aiActiveController === ctrl) __aiActiveController = null; }catch(e){}
 }
 
 function safeHtml(s){
