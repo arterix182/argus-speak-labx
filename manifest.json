@@ -2,21 +2,22 @@
   "name": "ARGUS SPEAK LAB-X",
   "short_name": "LAB-X",
   "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#070a14",
   "theme_color": "#0b1022",
+  "description": "Aprende inglés con lectura interactiva, pronunciación y ayuda con IA.",
   "icons": [
     {
-      "src": "./assets/icon-192.png",
+      "src": "/assets/icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "./assets/icon-512.png",
+      "src": "/assets/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
   ],
-  "scope": "/",
-  "id": "/?labx"
+  "id": "/labx"
 }
