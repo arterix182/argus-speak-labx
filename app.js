@@ -1,6 +1,6 @@
 const PRO_PAYMENT_LINK = "https://buy.stripe.com/fZuaEQ3yo89r9rz44U9MY00";
 const USE_PAYMENT_LINK_ONLY = true;
-const APP_VERSION = 'v15';
+const APP_VERSION = 'v16';
 /* ARGUS SPEAK LAB-X — Article + AI Prototype
    Client calls /api/ai (Netlify function) to keep OpenAI key secret.
 */
@@ -250,11 +250,29 @@ async function fetchConfig(){
 }
 
 
+
+async function waitForSupabase(maxWaitMs=2500){
+  if(window.supabase) return true;
+  const start = Date.now();
+  // Give CDN fallback a chance before we disable everything
+  try{ showAuthMsg("⏳ Cargando Supabase…"); }catch(_){}
+  while(!window.supabase && (Date.now()-start) < maxWaitMs){
+    await new Promise(r => setTimeout(r, 50));
+  }
+  return !!window.supabase;
+}
+
 async function initSupabaseAuth(){
-  if(!window.supabase){
+  const ok = await waitForSupabase(2500);
+  if(!ok){
     showAuthMsg("⚠️ No se pudo cargar Supabase (revisa internet o bloqueador).");
     try{ btnSendLink && (btnSendLink.disabled = true); }catch(_){ }
     try{ btnSubscribe && (btnSubscribe.disabled = true); }catch(_){ }
+    // Tip: user can try again after disabling blockers
+    try{
+      const retry = document.getElementById("btnRetrySupabase");
+      if(retry){ retry.disabled = false; }
+    }catch(_){}
     return;
   }
   const cfg = await fetchConfig();
@@ -1058,12 +1076,21 @@ if(btnInstall) btnInstall.addEventListener("click", async () => {
 });
 
 async function registerSW(){
-  if("serviceWorker" in navigator){
-    try{ await navigator.serviceWorker.register("./sw.js"); }catch(_){}
-  }
+  if(!("serviceWorker" in navigator)) return;
+  try{
+    const reg = await navigator.serviceWorker.register("./sw.js");
+    // Ask browser to check for updates (helps avoid stale cache)
+    try{ await reg.update(); }catch(_){}
+    // Reload once when a new SW takes control
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if(reloaded) return;
+      reloaded = true;
+      location.reload();
+    });
+  }catch(_){}
 }
 registerSW();
-
 /* ---------- Text rendering as clickable words ---------- */
 function tokenizeToSpans(text){
   const frag = document.createDocumentFragment();
