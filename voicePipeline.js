@@ -48,9 +48,21 @@ async function VX_ttsAudio(text) {
 async function VX_playAudio(buf) {
   const blob = new Blob([buf], { type: "audio/mpeg" });
   const url = URL.createObjectURL(blob);
-  const a = new Audio(url);
-  await a.play();
-  a.onended = () => URL.revokeObjectURL(url);
+
+  return await new Promise(async (resolve, reject) => {
+    const a = new Audio(url);
+
+    a.onended = () => { URL.revokeObjectURL(url); resolve(); };
+    a.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+
+    try {
+      await a.play(); // inicia
+      // y ahora esperamos onended (resolve)
+    } catch (e) {
+      URL.revokeObjectURL(url);
+      reject(e);
+    }
+  });
 }
 
 window.VX_transcribeAudio = VX_transcribeAudio;
