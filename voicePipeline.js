@@ -1,23 +1,18 @@
-// voicePipeline.js (COMPLETO, VX_* para evitar choques)
+// voicePipeline.js (COMPLETO) — VX_* para evitar choques con código viejo
 
-async function VX_blobToBase64(blob) {
-  const ab = await blob.arrayBuffer();
-  const bytes = new Uint8Array(ab);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
+// ===============================
+// STT (multipart/form-data)
+// Tu function /api/stt exige multipart/form-data o x-www-form-urlencoded,
+// por eso aquí mandamos FormData (sin headers Content-Type).
+// ===============================
 async function VX_transcribeAudio(blob) {
-  const audioBase64 = await VX_blobToBase64(blob);
+  const fd = new FormData();
+  fd.append("file", blob, "audio.webm"); // <-- nombre de campo típico
+  fd.append("mimeType", blob.type || "audio/webm"); // por si tu backend lo usa
 
   const r = await fetch("/api/stt", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      audioBase64,
-      mimeType: blob.type || "audio/webm",
-    }),
+    body: fd, // IMPORTANTE: sin headers para que el browser ponga boundary correcto
   });
 
   let j;
@@ -27,6 +22,10 @@ async function VX_transcribeAudio(blob) {
   return (j.text || "").trim();
 }
 
+// ===============================
+// CHAT -> /api/chat (JSON)
+// Espera { userText } y responde { reply }
+// ===============================
 async function VX_chatReply(userText) {
   const clean = (userText || "").trim();
   if (!clean) throw new Error("Empty userText");
@@ -44,6 +43,10 @@ async function VX_chatReply(userText) {
   return (j.reply || "").trim();
 }
 
+// ===============================
+// TTS -> /api/tts (JSON)  (si existe)
+// Responde audio (arrayBuffer). Si no existe, fallará y el recorder lo ignora.
+// ===============================
 async function VX_ttsAudio(text) {
   const clean = (text || "").trim();
   if (!clean) throw new Error("Empty text");
@@ -66,7 +69,9 @@ async function VX_playAudio(buf) {
   a.onended = () => URL.revokeObjectURL(url);
 }
 
-// Exporta “blindado”
+// ===============================
+// Exports a window (blindado)
+// ===============================
 window.VX_transcribeAudio = VX_transcribeAudio;
 window.VX_chatReply = VX_chatReply;
 window.VX_ttsAudio = VX_ttsAudio;
@@ -78,6 +83,7 @@ console.log("✅ voicePipeline loaded (VX)", {
   VX_ttsAudio: typeof window.VX_ttsAudio,
   VX_playAudio: typeof window.VX_playAudio
 });
+
 
 
 
