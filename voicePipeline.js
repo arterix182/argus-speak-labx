@@ -23,5 +23,11 @@ async function transcribeAudio(blob) {
   const j = await r.json();
   if (!r.ok) throw new Error(JSON.stringify(j));
   return j.text;
+  // Asegura que las funciones queden globales
+window.transcribeAudio = transcribeAudio;
+window.chatReply = chatReply;
+window.ttsAudio = ttsAudio;
+window.playAudio = playAudio;
+
 }
 
