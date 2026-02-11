@@ -1,364 +1,81 @@
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#0b1022" />
-  <title>ARGUS SPEAK LAB-X</title>
-  <link rel="manifest" href="./manifest.json">
-  <link rel="icon" href="./assets/icon-192.png">
-  <link rel="stylesheet" href="./styles.css" />
-  <button id="btnHold" style="padding:12px 16px;font-size:16px;">
-  Mantén presionado para hablar
-</button>
-<div id="log" style="margin-top:10px;font-family:Arial;"></div>
+// voicePipeline.js (COMPLETO, VX_* para evitar choques)
 
-<script>
-  const btn = document.getElementById("btnHold");
-  btn.addEventListener("mousedown", () => startRec());
-  btn.addEventListener("mouseup", () => runVoiceTurn());
+async function VX_blobToBase64(blob) {
+  const ab = await blob.arrayBuffer();
+  const bytes = new Uint8Array(ab);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
 
-  // Para celular (touch)
-  btn.addEventListener("touchstart", (e) => { e.preventDefault(); startRec(); });
-  btn.addEventListener("touchend", (e) => { e.preventDefault(); runVoiceTurn(); });
-</script>
+async function VX_transcribeAudio(blob) {
+  const audioBase64 = await VX_blobToBase64(blob);
 
-</head>
-<script src="./voicePipeline.js?v=1"></script>
-<script src="./voiceRecorder.js?v=1"></script>
+  const r = await fetch("/api/stt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      audioBase64,
+      mimeType: blob.type || "audio/webm",
+    }),
+  });
 
-<body>
-  <div style="padding:10px;">
-  <button id="btnHold" style="padding:12px 16px;font-size:16px;">
-    Mantén presionado para hablar
-  </button>
-  <div id="voiceStatus" style="margin-top:8px;font-family:Arial;"></div>
-  <pre id="voiceLog" style="white-space:pre-wrap;"></pre>
-</div>
+  let j;
+  try { j = await r.json(); } catch { j = { error: "Non-JSON response from /api/stt" }; }
+  if (!r.ok) throw new Error(JSON.stringify(j));
 
-<script>
-  const statusEl = document.getElementById("voiceStatus");
-  const logEl = document.getElementById("voiceLog");
+  return (j.text || "").trim();
+}
 
-  window.__voiceState = (s) => statusEl.textContent = "Estado: " + s;
-  window.__voiceLog = (who, text) => logEl.textContent = (logEl.textContent + `\n${who}: ${text}`).trim();
+async function VX_chatReply(userText) {
+  const clean = (userText || "").trim();
+  if (!clean) throw new Error("Empty userText");
 
-  const btn = document.getElementById("btnHold");
-  btn.addEventListener("mousedown", () => startRec());
-  btn.addEventListener("mouseup", () => runVoiceTurn());
-  btn.addEventListener("touchstart", (e) => { e.preventDefault(); startRec(); }, { passive:false });
-  btn.addEventListener("touchend", (e) => { e.preventDefault(); runVoiceTurn(); }, { passive:false });
-</script>
+  const r = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userText: clean }),
+  });
 
-  <div class="bg"></div>
-  <div class="noise"></div>
+  let j;
+  try { j = await r.json(); } catch { j = { error: "Non-JSON response from /api/chat" }; }
+  if (!r.ok) throw new Error(JSON.stringify(j));
 
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand__badge" id="brandBadge" aria-hidden="true">
-        <img class="brand__icon" src="./assets/icon-192.png" alt="" />
-      </div>
-      <div class="brand__text">
-        <div class="brand__name">ARGUS SPEAK <span class="labx">LAB‑X</span></div>
-        <div class="brand__tag">Aprende inglés con IA. Rápido. Real. Brutal.</div>
-      </div>
-    </div>
+  return (j.reply || "").trim();
+}
 
-    <div class="topbar__actions">
-      <div class="voiceSwitch" title="Voz del lector">
-        <span class="voiceSwitch__label">Voz</span>
-        <button id="voiceFemale" class="voiceSwitch__btn" data-gender="female" aria-pressed="true">Femenino</button>
-        <button id="voiceMale" class="voiceSwitch__btn" data-gender="male" aria-pressed="false">Masculino</button>
-      </div>
+async function VX_ttsAudio(text) {
+  const clean = (text || "").trim();
+  if (!clean) throw new Error("Empty text");
 
-      <div class="voiceExact" title="Elige una voz exacta (opcional)">
-        <span class="voiceExact__label">Voz exacta</span>
-        <select id="voiceExactSelect" class="select select--compact" aria-label="Voz exacta"></select>
-        <button id="btnTestVoice" class="btn btn--ghost btn--mini" title="Probar voz">🔊</button>
-      </div>
+  const r = await fetch("/api/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: clean }),
+  });
 
-      <button id="btnInstall" class="btn btn--ghost" title="Instalar">Instalar</button>
-      <button id="btnCheckAI" class="btn btn--primary" title="Probar IA">Probar IA</button>
-    
-      <div class="planPill" id="planPill" title="Estado de suscripción">FREE</div>
-      <button id="btnAccount" class="btn btn--ghost" title="Cuenta y suscripción">Cuenta</button>
-</div>
-  </header>
+  if (!r.ok) throw new Error(await r.text());
+  return await r.arrayBuffer();
+}
 
-  <main class="shell">
-    <nav class="tabs" aria-label="Navegación">
-      <button class="tab is-active" data-view="home">Inicio</button>
-      <button class="tab" data-view="article">Artículo</button>
-      <button class="tab" data-view="vocab">Vocab</button>
-      <button class="tab" data-view="daily">10/Día</button>
-      <button class="tab" data-view="training">Entrenamiento</button>
-    </nav>
+async function VX_playAudio(buf) {
+  const blob = new Blob([buf], { type: "audio/mpeg" });
+  const url = URL.createObjectURL(blob);
+  const a = new Audio(url);
+  await a.play();
+  a.onended = () => URL.revokeObjectURL(url);
+}
 
-    <!-- HOME -->
-    <section class="view is-active" id="view-home">
-      <div class="grid2">
-        <section class="card card--hero">
-          <div class="card__title">Modo lectura instantánea</div>
-          <div class="card__subtitle">Toca una palabra para ver traducción, uso y pronunciación con IA.</div>
+// Exporta “blindado”
+window.VX_transcribeAudio = VX_transcribeAudio;
+window.VX_chatReply = VX_chatReply;
+window.VX_ttsAudio = VX_ttsAudio;
+window.VX_playAudio = VX_playAudio;
 
-          <div class="reader">
-            <div class="reader__toolbar">
-              <button id="btnReadDemo" class="btn btn--soft">🔊 Leer texto</button>
-              <button id="btnClearSelection" class="btn btn--ghost">Limpiar</button>
-            </div>
-            <div class="reader__text" id="demoText"></div>
-          </div>
-        </section>
+console.log("✅ voicePipeline loaded (VX)", {
+  VX_transcribeAudio: typeof window.VX_transcribeAudio,
+  VX_chatReply: typeof window.VX_chatReply,
+  VX_ttsAudio: typeof window.VX_ttsAudio,
+  VX_playAudio: typeof window.VX_playAudio
+});
 
-        <section class="card">
-          <div class="card__title">Comandos rápidos (IA)</div>
-          <div class="card__subtitle">Sin “frases mágicas”. Tú mandas.</div>
-
-          <div class="stack">
-            <label class="field">
-              <span>Pregunta sobre el texto / palabra / gramática</span>
-              <textarea id="quickAsk" placeholder="Ej: Explica este párrafo como si tuviera 12 años..."></textarea>
-            </label>
-            <div class="row">
-              <button id="btnAskAI" class="btn btn--primary">Preguntar</button>
-              <button id="btnExplainSentence" class="btn btn--ghost">Explicar oración seleccionada</button>
-            </div>
-
-            <div class="output" id="quickOutput" hidden></div>
-          </div>
-        </section>
-      </div>
-    </section>
-
-    <!-- ARTICLE -->
-    <section class="view" id="view-article">
-      <section class="card card--wide">
-        <div class="card__title">Pega cualquier artículo en inglés</div>
-        <div class="card__subtitle">Lo convierto en un “campo de entrenamiento”: palabras tocables + IA.</div>
-
-        <div class="grid2">
-          <div class="stack">
-            <label class="field">
-              <span>Artículo (inglés)</span>
-              <textarea id="articleInput" placeholder="Pega aquí tu artículo en inglés..."></textarea>
-            </label>
-            <div class="row">
-              <button id="btnRenderArticle" class="btn btn--primary">Preparar lectura</button>
-              <button id="btnReadArticle" class="btn btn--soft">🔊 Leer</button>
-              <button id="btnSummarize" class="btn btn--ghost">Resumen (IA)</button>
-              <button id="btnClearArticle" class="btn btn--ghost">Limpiar</button>
-            </div>
-            <div class="hint">Tip: toca una palabra para abrir el panel de “Word Intel”.</div>
-          </div>
-
-          <div class="stack">
-            <div class="panel">
-              <div class="panel__title">Word Intel</div>
-              <div class="panel__body" id="wordPanelBody">
-                <div class="muted">Toca una palabra para ver:</div>
-                <ul class="muted">
-                  <li>Traducción y significado real</li>
-                  <li>Pronunciación (IPA + guía simple)</li>
-                  <li>Uso en 2 ejemplos: formal y casual</li>
-                  <li>Sinónimos y advertencias típicas</li>
-                </ul>
-              </div>
-              <div class="panel__actions">
-                <button id="btnSpeakWord" class="btn btn--soft" disabled>🔊 Pronunciar</button>
-                <button id="btnQuizWord" class="btn btn--ghost" disabled>Mini‑quiz</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="reader reader--article">
-          <div class="reader__text" id="articleRendered"></div>
-        </div>
-      </section>
-    </section>
-
-    <!-- VOCAB -->
-    <section class="view" id="view-vocab">
-      <section class="card card--wide">
-        <div class="card__title">Vocabulario “vida real”</div>
-        <div class="card__subtitle">Guarda palabras y repásalas cuando tú quieras.</div>
-
-        <div class="row">
-          <button id="btnSaveSelected" class="btn btn--primary">Guardar palabra seleccionada</button>
-          <button id="btnClearSaved" class="btn btn--ghost">Borrar lista</button>
-        </div>
-
-        <div class="saved" id="savedList"></div>
-      </section>
-    </section>
-
-    <!-- DAILY -->
-    <section class="view" id="view-daily">
-      <section class="card card--wide">
-        <div class="card__title">10 palabras diarias (IA)</div>
-        <div class="card__subtitle">Tema → 10 palabras → práctica con “OK / vuelve a intentar”.</div>
-
-        <div class="row">
-          <select id="dailyTopic" class="select">
-            <option value="work">Trabajo</option>
-            <option value="daily">Conversación diaria</option>
-            <option value="travel">Viaje</option>
-            <option value="business">Negocios</option>
-            <option value="auto">Automotriz</option>
-          </select>
-          <button id="btnGenerateDaily" class="btn btn--primary">Generar 10</button>
-          <button id="btnResetDaily" class="btn btn--ghost">Reiniciar</button>
-        </div>
-
-        <div class="dailyGrid" id="dailyGrid"></div>
-      </section>
-    </section>
-
-  </main>
-
-  <!-- BOTTOM SHEET -->
-  <div class="sheet" id="sheet" aria-hidden="true">
-    <div class="sheet__backdrop" id="sheetBackdrop"></div>
-    <div class="sheet__card">
-      <div class="sheet__head">
-        <div>
-          <div class="sheet__word" id="sheetWord">—</div>
-          <div class="sheet__meta" id="sheetMeta">Toca una palabra en el texto</div>
-        </div>
-        <button class="btn btn--ghost" id="sheetClose">Cerrar</button>
-      </div>
-      <div class="sheet__body" id="sheetBody"></div>
-      <div class="sheet__foot">
-        <button class="btn btn--soft" id="sheetSpeak">🔊 Pronunciar</button>
-        <button class="btn btn--primary" id="sheetSave">Guardar</button>
-      </div>
-    </div>
-  </div>
-
-  
-  <!-- TRAINING -->
-<section class="view" id="view-training">
-  <div class="panel">
-    <h2>Entrenamiento (7 min)</h2>
-    <p class="muted">Shadowing → Conversación → Autopsia → Repetición. Carga bajo demanda para mantener la app rápida.</p>
-  </div>
-
-  <div class="card">
-    <div class="row">
-      <label class="muted" for="trainingTopic">Tema (elige uno real):</label>
-      <input id="trainingTopic" class="input" placeholder="Ej: entrevista, junta, pedir ayuda, travel, daily life" />
-    </div>
-
-    <div class="row" style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-      <button id="trainingStart" class="btn primary">Iniciar sesión</button>
-      <button id="trainingReset" class="btn">Reiniciar</button>
-    </div>
-
-    <div class="divider" style="margin:14px 0;"></div>
-
-    <div id="trainingStepPill" class="pill">Listo</div>
-    <h3 id="trainingStepTitle" style="margin-top:10px;">Pulsa “Iniciar sesión”</h3>
-    <div id="trainingStage" class="muted" style="margin-top:8px;">
-      Esto funciona incluso si no tienes cuenta. Si inicias sesión, guardará tu progreso.
-    </div>
-
-    <div id="trainingControls" style="margin-top:12px; display:none; gap:10px; flex-wrap:wrap;">
-      <button id="trainingSpeak" class="btn">Escuchar</button>
-      <button id="trainingNext" class="btn primary">Continuar</button>
-    </div>
-
-    <div id="trainingChat" style="margin-top:14px; display:none;">
-      <div id="trainingChatLog" class="card" style="padding:12px; max-height:260px; overflow:auto;"></div>
-      <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-        <textarea id="trainingUserInput" class="input" style="min-height:80px; flex:1;" placeholder="Responde en inglés aquí…"></textarea>
-        <button id="trainingSend" class="btn primary">Enviar</button>
-      </div>
-    </div>
-
-    <div id="trainingAutopsy" style="margin-top:14px; display:none;">
-      <h3>Huella de errores</h3>
-      <div id="trainingAutopsyOut" class="card" style="padding:12px;"></div>
-    </div>
-
-    <div id="trainingRepeat" style="margin-top:14px; display:none;">
-      <h3>Repetición mejorada</h3>
-      <div id="trainingRepeatOut" class="card" style="padding:12px;"></div>
-    </div>
-
-    <p class="muted" style="margin-top:12px;">
-      Tip: si presionas IA muchas veces, la app cancela la solicitud anterior para evitar congelamientos.
-    </p>
-  </div>
-</section>
-
-    <!-- ACCOUNT / SUBSCRIPTION MODAL -->
-  <div class="modal" id="accountModal" hidden>
-    <div class="modal__backdrop" id="accountBackdrop"></div>
-    <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
-      <div class="modal__head">
-        <div>
-          <div class="modal__title" id="accountTitle">Cuenta & Suscripción</div>
-          <div class="modal__sub" id="accountEmail">Invitado</div>
-        </div>
-        <button class="btn btn--ghost btn--mini" id="btnAccountClose" title="Cerrar">✕</button>
-      </div>
-      <div class="modal__body">
-        <div class="field">
-          <label for="authEmail">Email</label>
-          <input id="authEmail" type="email" placeholder="tu@correo.com" autocomplete="email" inputmode="email" />
-          <div class="muted small">Te mandamos un link mágico para entrar (sin contraseñas).</div>
-        </div>
-
-          <div class="field" id="otpField" hidden>
-            <label for="authCode">Código (6–12 dígitos)</label>
-            <input id="authCode" type="text" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" maxlength="12" />
-            <div class="muted small">Opción recomendada en celular: te llega un código y lo pegas aquí, sin salir de la app.</div>
-          </div>
-
-        <div class="row row--tight">
-          <button class="btn btn--primary" id="btnSendLink">Enviar link</button>
-          <button class="btn btn--soft" id="btnSendCode">Enviar código</button>
-          <button class="btn btn--primary" id="btnVerifyCode" hidden>Verificar</button>
-          <button class="btn btn--ghost" id="btnLogout" hidden>Salir</button>
-        </div>
-
-        <div class="hr"></div>
-
-        <div class="planBox">
-          <div class="planBox__title">Plan PRO</div>
-          <div class="planBox__desc">Desbloquea IA y herramientas premium. Cancela cuando quieras.</div>
-          <div class="row row--tight">
-            <button class="btn btn--primary" id="btnSubscribe">Suscribirme</button>
-            <button class="btn btn--ghost" id="btnManage" hidden>Gestionar</button>
-          </div>
-          <div class="muted small" id="billingMsg"></div>
-        </div>
-
-        <div class="muted small" id="authMsg"></div>
-        <div class="hr"></div>
-        <div class="row row--tight">
-          <button class="btn btn--ghost" id="btnResetApp" title="Soluciona caché atascado">Reset app (caché)</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-  
-  <script>
-    // Fallback CDN (in case jsdelivr is blocked)
-    (function(){
-      function load(src){
-        var s=document.createElement('script');
-        s.src=src; s.async=false;
-        document.head.appendChild(s);
-      }
-      if(!window.supabase){
-        load("https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js");
-      }
-    })();
-  </script>
-<script src="./app.js"></script>
-</body>
-</html>
