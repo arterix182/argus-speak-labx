@@ -1,26 +1,13 @@
-async function blobToBase64(blob) {
-  const ab = await blob.arrayBuffer();
-  const bytes = new Uint8Array(ab);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
+// voicePipeline.js
 
 async function transcribeAudio(blob) {
-  const audioBase64 = await blobToBase64(blob);
+  const fd = new FormData();
+  fd.append("file", blob, "audio.webm");
 
-  const r = await fetch("/api/stt", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      audioBase64,
-      mimeType: blob.type || "audio/webm"
-    })
-  });
-
+  const r = await fetch("/api/stt", { method: "POST", body: fd });
   const j = await r.json();
   if (!r.ok) throw new Error(JSON.stringify(j));
-  return j.text || "";
+  return j.text;
 }
 
 async function chatReply(userText) {
@@ -31,7 +18,7 @@ async function chatReply(userText) {
   });
   const j = await r.json();
   if (!r.ok) throw new Error(JSON.stringify(j));
-  return j.reply || "";
+  return j.reply;
 }
 
 async function ttsAudio(text) {
@@ -52,16 +39,4 @@ async function playAudio(buf) {
   a.onended = () => URL.revokeObjectURL(url);
 }
 
-// Exporta global (para evitar “undefined”)
-window.transcribeAudio = transcribeAudio;
-window.chatReply = chatReply;
-window.ttsAudio = ttsAudio;
-window.playAudio = playAudio;
-
-console.log("✅ voicePipeline ready", {
-  transcribeAudio: typeof window.transcribeAudio,
-  chatReply: typeof window.chatReply,
-  ttsAudio: typeof window.ttsAudio,
-  playAudio: typeof window.playAudio
-});
 
