@@ -1,10 +1,11 @@
-// voiceRecorder.js (COMPLETO)
+// voiceRecorder.js (COMPLETO) — usa VX_* y evita redeclare
+
 (() => {
-  if (window.__voiceRecorderLoaded) {
-    console.warn("⚠️ voiceRecorder already loaded, skipping");
+  if (window.__VX_voiceRecorderLoaded) {
+    console.warn("⚠️ VX voiceRecorder already loaded, skipping");
     return;
   }
-  window.__voiceRecorderLoaded = true;
+  window.__VX_voiceRecorderLoaded = true;
 
   let mediaRecorder = null;
   let chunks = [];
@@ -20,7 +21,7 @@
     console.log(`${who}:`, msg);
   }
 
-  async function startRec() {
+  async function VX_startRec() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     chunks = [];
     startedAt = Date.now();
@@ -35,7 +36,7 @@
     console.log("🎙️ recording...");
   }
 
-  function stopRec() {
+  function VX_stopRec() {
     return new Promise((resolve, reject) => {
       if (!mediaRecorder) return reject(new Error("No recorder"));
       mediaRecorder.onstop = () => {
@@ -46,12 +47,13 @@
     });
   }
 
-  async function runVoiceTurn() {
+  async function VX_runVoiceTurn() {
     try {
       setState("thinking");
-      const blob = await stopRec();
 
-      // Si grabó muy poquito, pide repetir (evita STT vacío)
+      const blob = await VX_stopRec();
+
+      // evita “STT vacío” por grabaciones cortas
       const ms = Date.now() - startedAt;
       if (ms < 700) {
         setState("idle");
@@ -60,7 +62,7 @@
       }
 
       log("SYS", "STT...");
-      const text = await window.transcribeAudio(blob);
+      const text = await window.VX_transcribeAudio(blob);
 
       if (!text) {
         setState("idle");
@@ -70,14 +72,20 @@
       log("YOU", text);
 
       log("SYS", "CHAT...");
-      const reply = await window.chatReply(text);
+      const reply = await window.VX_chatReply(text);
       log("BOT", reply);
 
-      // Si aún no tienes TTS, comenta este bloque
+      // TTS opcional: si /api/tts no existe, no truena la app, solo te avisa
       log("SYS", "TTS...");
-      setState("speaking");
-      const buf = await window.ttsAudio(reply);
-      await window.playAudio(buf);
+      try {
+        setState("speaking");
+        const buf = await window.VX_ttsAudio(reply);
+        await window.VX_playAudio(buf);
+      } catch (ttsErr) {
+        setState("idle");
+        log("SYS", "TTS no disponible aún (ok).");
+        console.warn("TTS error (ignored):", ttsErr);
+      }
 
       setState("idle");
     } catch (e) {
@@ -87,11 +95,13 @@
     }
   }
 
-  window.startRec = startRec;
-  window.runVoiceTurn = runVoiceTurn;
+  // Exporta handlers para el HTML
+  window.VX_startRec = VX_startRec;
+  window.VX_runVoiceTurn = VX_runVoiceTurn;
 
-  console.log("✅ voiceRecorder ready");
+  console.log("✅ voiceRecorder loaded (VX)");
 })();
+
 
 
 
