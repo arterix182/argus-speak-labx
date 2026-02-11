@@ -1,75 +1,68 @@
-// voicePipeline.js — STT (multipart) -> CHAT -> TTS -> play
+// voicePipeline.js (COMPLETO)
+// Provee: window.VX_transcribeAudio, window.VX_chatReply, window.VX_ttsAudio, window.VX_playAudio
 
-(() => {
-  const log = (s) => window.__voiceLog?.("SYS", s);
+async function VX_transcribeAudio(blob) {
+  const fd = new FormData();
+  fd.append("file", blob, "audio.webm");
+  const r = await fetch("/api/stt", { method: "POST", body: fd });
 
-  async function VX_transcribeAudio(blob){
-    // STT = multipart/form-data con file
-    const fd = new FormData();
-    fd.append("file", blob, "audio.webm");
+  let j;
+  try { j = await r.json(); }
+  catch { j = { error: "Non-JSON response from /api/stt" }; }
 
-    const r = await fetch("/api/stt", { method:"POST", body: fd });
-    let j;
-    try { j = await r.json(); }
-    catch { throw new Error(JSON.stringify({ error:"Non-JSON response from /api/stt" })); }
+  if (!r.ok) throw new Error(JSON.stringify(j));
+  return (j.text || "").trim();
+}
 
-    if (!r.ok) throw new Error(JSON.stringify(j));
-    return (j.text || "").trim();
-  }
+async function VX_chatReply(userText) {
+  const clean = (userText || "").trim();
+  if (!clean) throw new Error("Empty userText");
+  const r = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userText: clean })
+  });
 
-  async function VX_chatReply(userText){
-    const clean = (userText || "").trim();
-    if (!clean) throw new Error("Empty userText");
+  let j;
+  try { j = await r.json(); }
+  catch { j = { error: "Non-JSON response from /api/chat" }; }
 
-    const mode = (window.VX_mode || "coach").trim();
+  if (!r.ok) throw new Error(JSON.stringify(j));
+  return (j.reply || "").trim();
+}
 
-    const r = await fetch("/api/chat", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ userText: clean, mode })
-    });
+async function VX_ttsAudio(text) {
+  const clean = (text || "").trim();
+  if (!clean) throw new Error("Empty text");
 
-    let j;
-    try { j = await r.json(); }
-    catch { throw new Error(JSON.stringify({ error:"Non-JSON response from /api/chat" })); }
+  const r = await fetch("/api/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: clean })
+  });
 
-    if (!r.ok) throw new Error(JSON.stringify(j));
-    return (j.reply || "").trim();
-  }
+  if (!r.ok) throw new Error(await r.text());
+  return await r.arrayBuffer();
+}
 
-  async function VX_ttsAudio(text){
-    const clean = (text || "").trim();
-    if (!clean) throw new Error("Empty text");
+async function VX_playAudio(buf) {
+  const blob = new Blob([buf], { type: "audio/mpeg" });
+  const url = URL.createObjectURL(blob);
+  const a = new Audio(url);
+  await a.play();
+  a.onended = () => URL.revokeObjectURL(url);
+}
 
-    const r = await fetch("/api/tts", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ text: clean })
-    });
+window.VX_transcribeAudio = VX_transcribeAudio;
+window.VX_chatReply = VX_chatReply;
+window.VX_ttsAudio = VX_ttsAudio;
+window.VX_playAudio = VX_playAudio;
 
-    if (!r.ok) {
-      const t = await r.text().catch(()=> "");
-      throw new Error(t || "TTS failed");
-    }
-    return await r.arrayBuffer();
-  }
+console.log("✅ voicePipeline loaded", {
+  VX_transcribeAudio: typeof window.VX_transcribeAudio,
+  VX_chatReply: typeof window.VX_chatReply,
+  VX_ttsAudio: typeof window.VX_ttsAudio
+});
 
-  async function VX_playAudio(buf){
-    // Reproduce audio mp3/mpeg
-    const blob = new Blob([buf], { type:"audio/mpeg" });
-    const url = URL.createObjectURL(blob);
-    const a = new Audio(url);
-    await a.play();
-    a.onended = () => URL.revokeObjectURL(url);
-  }
-
-  window.VX_transcribeAudio = VX_transcribeAudio;
-  window.VX_chatReply = VX_chatReply;
-  window.VX_ttsAudio = VX_ttsAudio;
-  window.VX_playAudio = VX_playAudio;
-
-  console.log("✅ voicePipeline loaded");
-  log?.("✅ voicePipeline listo.");
-})();
 
 
