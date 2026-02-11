@@ -3,51 +3,48 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>ARGUS Avatar (Voz → IA → Voz)</title>
+  <title>ARGUS Avatar Beta (Voz → IA → Voz)</title>
   <style>
     :root{
-      --bg:#07152b; --card:#0b2344; --card2:#0a1c36; --txt:#e9f2ff; --muted:#9db6d6;
-      --btn:#143d7a; --btn2:#0f2f5e; --ok:#2ee59d; --warn:#ffcc66; --bad:#ff5a7a;
+      --bg:#07152b; --txt:#e9f2ff; --muted:#9db6d6;
+      --card:rgba(255,255,255,.04); --line:rgba(255,255,255,.10);
       --ring: rgba(46,229,157,.25);
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     }
     body{margin:0;background:radial-gradient(900px 500px at 30% 0%, #0e2a55, var(--bg)); color:var(--txt);}
-    .wrap{max-width:1100px;margin:30px auto;padding:0 16px;}
+    .wrap{max-width:1100px;margin:26px auto;padding:0 16px;}
     .panel{background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
-      border:1px solid rgba(255,255,255,.08); border-radius:22px; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,.35);}
-    .top{display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap;}
-    .title{display:flex;gap:12px;align-items:center;}
-    .mic{font-size:28px}
-    h1{font-size:34px;margin:0;letter-spacing:.3px}
-    .sub{color:var(--muted);margin-top:4px}
+      border:1px solid rgba(255,255,255,.08); border-radius:22px; padding:20px; box-shadow:0 20px 60px rgba(0,0,0,.35);}
+    .top{display:flex;gap:14px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;}
+    h1{margin:0;font-size:32px}
+    .sub{margin-top:6px;color:var(--muted)}
     .pill{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);padding:10px 14px;border-radius:999px;color:var(--muted)}
-    .grid{display:grid;grid-template-columns: 420px 1fr;gap:18px;margin-top:18px}
+    .grid{display:grid;grid-template-columns: 420px 1fr;gap:16px;margin-top:16px}
     @media (max-width: 980px){.grid{grid-template-columns:1fr}}
-    .card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:16px}
-    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-    button, select, input{
+    .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    button, select{
       background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
       border:1px solid rgba(255,255,255,.10);
-      color:var(--txt); border-radius:14px; padding:14px 16px; font-weight:650; cursor:pointer;
+      color:var(--txt); border-radius:14px; padding:12px 14px; font-weight:700; cursor:pointer;
       box-shadow:0 10px 30px rgba(0,0,0,.22); outline:none;
     }
     button:hover{box-shadow:0 0 0 6px var(--ring), 0 10px 30px rgba(0,0,0,.22);}
     button:disabled{opacity:.55;cursor:not-allowed}
-    .btnRec{min-width:310px; display:flex;align-items:center;gap:10px}
-    .dot{width:12px;height:12px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 8px rgba(46,229,157,.15)}
+    .btnRec{min-width:300px;display:flex;align-items:center;gap:10px}
+    .dot{width:12px;height:12px;border-radius:50%;background:#2ee59d;box-shadow:0 0 0 8px rgba(46,229,157,.15)}
     .dot.off{background:rgba(255,255,255,.28);box-shadow:none}
     .barWrap{display:flex;align-items:center;gap:10px}
     .meter{width:240px;height:12px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden;border:1px solid rgba(255,255,255,.10)}
     .meter > div{height:100%;width:0%;}
     .lbl{font-size:13px;color:var(--muted)}
-    .status{font-weight:800}
     .log{background:rgba(0,0,0,.25); border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:14px; min-height:190px; white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
-    .avatarBox{position:relative;border-radius:18px;overflow:hidden;border:1px solid rgba(255,255,255,.10); background:linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.35));}
+    .avatarBox{position:relative;border-radius:18px;overflow:hidden;border:1px solid rgba(255,255,255,.10); background:#000;}
     video{display:block;width:100%;height:auto;background:#000}
-    .avatarTag{position:absolute;left:14px;bottom:14px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);
-      padding:10px 12px;border-radius:14px;color:var(--txt);backdrop-filter: blur(6px)}
-    .warn{color:var(--warn)} .bad{color:var(--bad)}
+    .tag{position:absolute;left:12px;bottom:12px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);
+      padding:8px 10px;border-radius:14px;color:var(--txt);backdrop-filter: blur(6px)}
     .hr{height:1px;background:rgba(255,255,255,.08);margin:12px 0}
+    .bad{color:#ff6b86}
   </style>
 </head>
 <body>
@@ -55,33 +52,26 @@
     <div class="panel">
       <div class="top">
         <div>
-          <div class="title">
-            <div class="mic">🎙️</div>
-            <div>
-              <h1>ARGUS Avatar (Voz → IA → Voz)</h1>
-              <div class="sub">Toca para grabar. Toca otra vez para detener. (Más confiable que “auto-silencio” en el mundo real.)</div>
-            </div>
-          </div>
+          <h1>🎙️ Avatar Beta (Voz → IA → Voz)</h1>
+          <div class="sub">Toca para grabar y vuelve a tocar para detener. (Esto es más confiable que “auto-silencio”.)</div>
         </div>
-        <div class="pill" id="apiPill">API: STT | CHAT | TTS</div>
+        <div class="pill">API: STT | CHAT | TTS</div>
       </div>
 
       <div class="grid">
-        <!-- LEFT: Avatar -->
         <div class="card">
           <div class="avatarBox">
             <video id="avatarVideo" playsinline muted loop preload="auto">
-              <source src="assets/avatar.mp4" type="video/mp4"/>
+              <source src="./assets/avatar.mp4" type="video/mp4">
             </video>
-            <div class="avatarTag" id="avatarTag">ARGUS Avatar</div>
+            <div class="tag" id="avatarTag">ARGUS Avatar</div>
           </div>
           <div class="hr"></div>
           <div class="lbl" id="avatarHint">
-            Si aparece “Falta avatar.mp4”, revisa que exista <b>assets/avatar.mp4</b> en tu repo y que se haya deployeado.
+            Si ves <span class="bad">Falta avatar.mp4</span>, asegúrate de subir <b>assets/avatar.mp4</b> a la rama beta.
           </div>
         </div>
 
-        <!-- RIGHT: Controls + Log -->
         <div class="card">
           <div class="row">
             <button id="btnRecord" class="btnRec"><span class="dot off" id="recDot"></span><span id="btnText">Grabar (toca para iniciar)</span></button>
@@ -92,9 +82,10 @@
               <option value="strict">Strict</option>
             </select>
 
+            <select id="micSelect" title="Micrófono"></select>
+
             <button id="btnTest">Probar Chat (texto)</button>
             <button id="btnClear">Limpiar</button>
-            <button id="btnForget">Borrar memoria</button>
 
             <div class="barWrap">
               <div class="meter" title="Nivel de audio"><div id="meterFill"></div></div>
@@ -105,7 +96,7 @@
           <div class="hr"></div>
 
           <div class="row">
-            <div>Estado: <span class="status" id="state">idle</span></div>
+            <div>Estado: <b id="state">idle</b></div>
             <div class="lbl" id="hint"></div>
           </div>
 
@@ -116,10 +107,11 @@
     </div>
   </div>
 
-  <script src="voicePipeline.js?v=1"></script>
-  <script src="voiceRecorder.js?v=1"></script>
+  <!-- IMPORTANTE: pipeline primero, recorder después -->
+  <script src="./voicePipeline.js?v=4"></script>
+  <script src="./voiceRecorder.js?v=4"></script>
+
   <script>
-    // UI helpers
     const $ = (id)=>document.getElementById(id);
     const logEl = $("log");
     const stateEl = $("state");
@@ -129,6 +121,7 @@
     const recDot = $("recDot");
     const meterFill = $("meterFill");
     const modeSel = $("mode");
+    const micSel = $("micSelect");
     const vid = $("avatarVideo");
     const avatarHint = $("avatarHint");
 
@@ -136,38 +129,46 @@
       logEl.textContent += (logEl.textContent ? "\n" : "") + line;
       logEl.scrollTop = logEl.scrollHeight;
     }
-    function setState(s, note=""){
-      stateEl.textContent = s;
-      hintEl.textContent = note;
-    }
-    function setRec(on){
-      recDot.classList.toggle("off", !on);
-      btnText.textContent = on ? "Grabando… (toca para detener)" : "Grabar (toca para iniciar)";
-    }
-    function setMeter(v){ // 0..1
-      const pct = Math.max(0, Math.min(1, v)) * 100;
-      meterFill.style.width = pct.toFixed(0) + "%";
-      meterFill.style.background = pct>8 ? "rgba(46,229,157,.9)" : "rgba(255,255,255,.35)";
-    }
+    function setState(s, note=""){ stateEl.textContent = s; hintEl.textContent = note; }
+    function setRec(on){ recDot.classList.toggle("off", !on); btnText.textContent = on ? "Grabando… (toca para detener)" : "Grabar (toca para iniciar)"; }
+    function setMeter(v){ const pct = Math.max(0, Math.min(1, v))*100; meterFill.style.width = pct.toFixed(0)+"%"; meterFill.style.background = pct>8 ? "rgba(46,229,157,.9)" : "rgba(255,255,255,.35)"; }
 
-    // Avatar: autoplay safe attempt
+    // Avatar
     (async ()=>{
-      try{
-        await vid.play(); // muted loop should autoplay
-      }catch(e){
-        // Some browsers block; it's fine. We'll play on first user gesture.
-      }
+      try{ await vid.play(); }catch(e){}
       vid.addEventListener("error", ()=>{
-        avatarHint.innerHTML = `<span class="bad">❌ Falta avatar.mp4</span> — asegúrate de tener <b>assets/avatar.mp4</b> en la rama beta y que Netlify ya hizo deploy.`;
+        avatarHint.innerHTML = `<span class="bad">❌ Falta ./assets/avatar.mp4</span> — súbelo a la rama beta (ruta exacta).`;
       });
     })();
 
-    // Bridge: voiceRecorder.js expects these globals:
-    // window.VX_transcribeAudio, window.VX_chatReply, window.VX_ttsAudio, window.VX_playAudio
-    // (Los define voicePipeline.js)
+    // Meter hook (lo llama voiceRecorder.js)
+    window.VX_onMeter = (v)=>setMeter(v);
 
-    // Recorder controller
-    let isRecording = false;
+    // Mic list: lo llena voiceRecorder.js con window.VX_listMics()
+    async function refreshMics(){
+      micSel.innerHTML = "";
+      try{
+        const mics = await window.VX_listMics();
+        for(const m of mics){
+          const opt = document.createElement("option");
+          opt.value = m.deviceId;
+          opt.textContent = m.label || `Mic (${m.deviceId.slice(0,6)}…)`;
+          micSel.appendChild(opt);
+        }
+        const saved = localStorage.getItem("VX_MIC");
+        if(saved){ micSel.value = saved; }
+      }catch(e){
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "No mic (permiso pendiente)";
+        micSel.appendChild(opt);
+      }
+    }
+
+    micSel.onchange = ()=>{
+      localStorage.setItem("VX_MIC", micSel.value);
+      if(window.VX_setMic) window.VX_setMic(micSel.value);
+    };
 
     $("btnTest").onclick = async ()=>{
       setState("thinking","Probando chat…");
@@ -187,12 +188,10 @@
     };
 
     $("btnClear").onclick = ()=>{ logEl.textContent=""; setState("idle",""); };
-    $("btnForget").onclick = ()=>{ localStorage.removeItem("ARGUS_MEM"); addLog("SYS: Memoria borrada."); };
 
-    // Audio meter from recorder (voiceRecorder.js will call window.VX_onMeter)
-    window.VX_onMeter = (v)=>{ setMeter(v); };
+    // Recording
+    let isRecording = false;
 
-    // Start/Stop recording (push-to-talk toggle)
     btn.onclick = async ()=>{
       try{
         if(!isRecording){
@@ -209,7 +208,6 @@
             onState: (s)=>setState(s)
           });
           setState("idle","Listo");
-          // Play avatar on user gesture
           try{ await vid.play(); }catch(e){}
         }
       }catch(err){
@@ -219,6 +217,18 @@
         alert("Falló voz/IA: " + (err?.message || String(err)));
       }
     };
+
+    // Init
+    (async ()=>{
+      // Si el recorder no exportó, aquí explotaría; por eso lo hacemos con try/catch y log.
+      try{
+        await refreshMics();
+        const saved = localStorage.getItem("VX_MIC");
+        if(saved && window.VX_setMic) window.VX_setMic(saved);
+      }catch(e){
+        addLog("SYS: Aviso: micrófonos no listos (permiso).");
+      }
+    })();
   </script>
 </body>
 </html>
