@@ -4,6 +4,10 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>ARGUS Avatar Beta (Voz → IA → Voz)</title>
+
+  <!-- Evita warning de favicon -->
+  <link rel="icon" href="data:,">
+
   <style>
     :root{
       --bg:#07152b; --txt:#e9f2ff; --muted:#9db6d6;
@@ -28,10 +32,11 @@
       border:1px solid rgba(255,255,255,.10);
       color:var(--txt); border-radius:14px; padding:12px 14px; font-weight:700; cursor:pointer;
       box-shadow:0 10px 30px rgba(0,0,0,.22); outline:none;
+      user-select:none; -webkit-user-select:none;
     }
     button:hover{box-shadow:0 0 0 6px var(--ring), 0 10px 30px rgba(0,0,0,.22);}
     button:disabled{opacity:.55;cursor:not-allowed}
-    .btnRec{min-width:300px;display:flex;align-items:center;gap:10px}
+    .btnRec{min-width:320px;display:flex;align-items:center;gap:10px}
     .dot{width:12px;height:12px;border-radius:50%;background:#2ee59d;box-shadow:0 0 0 8px rgba(46,229,157,.15)}
     .dot.off{background:rgba(255,255,255,.28);box-shadow:none}
     .barWrap{display:flex;align-items:center;gap:10px}
@@ -53,7 +58,7 @@
       <div class="top">
         <div>
           <h1>🎙️ Avatar Beta (Voz → IA → Voz)</h1>
-          <div class="sub">Toca para grabar y vuelve a tocar para detener. (Esto es más confiable que “auto-silencio”.)</div>
+          <div class="sub">PRO: Mantén presionado para grabar y suelta para enviar a IA. (Cero fallas por “silencio”).</div>
         </div>
         <div class="pill">API: STT | CHAT | TTS</div>
       </div>
@@ -68,13 +73,17 @@
           </div>
           <div class="hr"></div>
           <div class="lbl" id="avatarHint">
-            Si ves <span class="bad">Falta avatar.mp4</span>, asegúrate de subir <b>assets/avatar.mp4</b> a la rama beta.
+            Si ves <span class="bad">Falta avatar.mp4</span>, sube <b>assets/avatar.mp4</b> a la rama beta.
           </div>
         </div>
 
         <div class="card">
           <div class="row">
-            <button id="btnRecord" class="btnRec"><span class="dot off" id="recDot"></span><span id="btnText">Grabar (toca para iniciar)</span></button>
+            <!-- PUSH-TO-TALK -->
+            <button id="btnRecord" class="btnRec" title="Mantén presionado para grabar">
+              <span class="dot off" id="recDot"></span>
+              <span id="btnText">Mantén presionado para hablar</span>
+            </button>
 
             <select id="mode">
               <option value="coach">Coach</option>
@@ -108,8 +117,8 @@
   </div>
 
   <!-- IMPORTANTE: pipeline primero, recorder después -->
-  <script src="./voicePipeline.js?v=4"></script>
-  <script src="./voiceRecorder.js?v=4"></script>
+  <script src="./voicePipeline.js?v=5"></script>
+  <script src="./voiceRecorder.js?v=5"></script>
 
   <script>
     const $ = (id)=>document.getElementById(id);
@@ -130,8 +139,15 @@
       logEl.scrollTop = logEl.scrollHeight;
     }
     function setState(s, note=""){ stateEl.textContent = s; hintEl.textContent = note; }
-    function setRec(on){ recDot.classList.toggle("off", !on); btnText.textContent = on ? "Grabando… (toca para detener)" : "Grabar (toca para iniciar)"; }
-    function setMeter(v){ const pct = Math.max(0, Math.min(1, v))*100; meterFill.style.width = pct.toFixed(0)+"%"; meterFill.style.background = pct>8 ? "rgba(46,229,157,.9)" : "rgba(255,255,255,.35)"; }
+    function setRec(on){
+      recDot.classList.toggle("off", !on);
+      btnText.textContent = on ? "Grabando… (suelta para enviar a IA)" : "Mantén presionado para hablar";
+    }
+    function setMeter(v){
+      const pct = Math.max(0, Math.min(1, v))*100;
+      meterFill.style.width = pct.toFixed(0)+"%";
+      meterFill.style.background = pct>8 ? "rgba(46,229,157,.9)" : "rgba(255,255,255,.35)";
+    }
 
     // Avatar
     (async ()=>{
@@ -144,7 +160,6 @@
     // Meter hook (lo llama voiceRecorder.js)
     window.VX_onMeter = (v)=>setMeter(v);
 
-    // Mic list: lo llena voiceRecorder.js con window.VX_listMics()
     async function refreshMics(){
       micSel.innerHTML = "";
       try{
@@ -189,38 +204,67 @@
 
     $("btnClear").onclick = ()=>{ logEl.textContent=""; setState("idle",""); };
 
-    // Recording
+    // ===============================
+    // PUSH-TO-TALK (mantén presionado)
+    // ===============================
     let isRecording = false;
+    let busy = false;
 
-    btn.onclick = async ()=>{
+    async function startPTT(){
+      if(busy || isRecording) return;
+      busy = true;
       try{
-        if(!isRecording){
-          isRecording = true; setRec(true);
-          setState("listening","Hablando… toca otra vez para detener");
-          addLog("SYS: Escuchando…");
-          await window.VX_startRecording();
-        }else{
-          isRecording = false; setRec(false);
-          setState("thinking","Procesando STT → IA → TTS");
-          await window.VX_stopRecordingAndRun({
-            mode: modeSel.value,
-            onLog: addLog,
-            onState: (s)=>setState(s)
-          });
-          setState("idle","Listo");
-          try{ await vid.play(); }catch(e){}
-        }
+        isRecording = true;
+        setRec(true);
+        setState("listening","Mantén presionado… suelta para enviar a IA");
+        addLog("SYS: Escuchando…");
+        await window.VX_startRecording();
       }catch(err){
-        isRecording = false; setRec(false);
+        isRecording = false;
+        setRec(false);
+        setState("error","Revisa consola");
+        addLog("SYS: ERROR: " + (err?.message || String(err)));
+        alert("Falló micrófono. Revisa consola.");
+      }finally{
+        busy = false;
+      }
+    }
+
+    async function stopPTT(){
+      if(busy || !isRecording) return;
+      busy = true;
+      try{
+        isRecording = false;
+        setRec(false);
+        setState("thinking","Procesando STT → IA → TTS");
+        await window.VX_stopRecordingAndRun({
+          mode: modeSel.value,
+          onLog: addLog,
+          onState: (s)=>setState(s)
+        });
+        setState("idle","Listo");
+        try{ await vid.play(); }catch(e){}
+      }catch(err){
         setState("error","Revisa consola");
         addLog("SYS: ERROR: " + (err?.message || String(err)));
         alert("Falló voz/IA: " + (err?.message || String(err)));
+      }finally{
+        busy = false;
       }
-    };
+    }
+
+    // Pointer events (funciona en mouse + touch)
+    btn.onpointerdown = (e)=>{ e.preventDefault(); startPTT(); };
+    btn.onpointerup = (e)=>{ e.preventDefault(); stopPTT(); };
+    btn.onpointerleave = (e)=>{ if(isRecording) stopPTT(); };
+    btn.onpointercancel = (e)=>{ if(isRecording) stopPTT(); };
+
+    // Fallback: si el navegador no soporta pointer events bien
+    btn.ontouchstart = (e)=>{ e.preventDefault(); startPTT(); };
+    btn.ontouchend = (e)=>{ e.preventDefault(); stopPTT(); };
 
     // Init
     (async ()=>{
-      // Si el recorder no exportó, aquí explotaría; por eso lo hacemos con try/catch y log.
       try{
         await refreshMics();
         const saved = localStorage.getItem("VX_MIC");
@@ -232,6 +276,7 @@
   </script>
 </body>
 </html>
+
 
 
 
