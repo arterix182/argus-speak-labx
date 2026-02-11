@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>ARGUS Avatar Beta (Voz → IA → Voz)</title>
+  <title>ARGUS Avatar Beta (AutoStop PRO)</title>
 
   <!-- Evita warning de favicon -->
   <link rel="icon" href="data:,">
@@ -36,7 +36,7 @@
     }
     button:hover{box-shadow:0 0 0 6px var(--ring), 0 10px 30px rgba(0,0,0,.22);}
     button:disabled{opacity:.55;cursor:not-allowed}
-    .btnRec{min-width:320px;display:flex;align-items:center;gap:10px}
+    .btnRec{min-width:340px;display:flex;align-items:center;gap:10px}
     .dot{width:12px;height:12px;border-radius:50%;background:#2ee59d;box-shadow:0 0 0 8px rgba(46,229,157,.15)}
     .dot.off{background:rgba(255,255,255,.28);box-shadow:none}
     .barWrap{display:flex;align-items:center;gap:10px}
@@ -57,8 +57,8 @@
     <div class="panel">
       <div class="top">
         <div>
-          <h1>🎙️ Avatar Beta (Voz → IA → Voz)</h1>
-          <div class="sub">PRO: Mantén presionado para grabar y suelta para enviar a IA. (Cero fallas por “silencio”).</div>
+          <h1>🎙️ Avatar Beta (AutoStop PRO)</h1>
+          <div class="sub">Click para hablar. Se detiene solo cuando detecta silencio (~0.7s). Click otra vez = stop manual.</div>
         </div>
         <div class="pill">API: STT | CHAT | TTS</div>
       </div>
@@ -79,23 +79,46 @@
 
         <div class="card">
           <div class="row">
-            // ===============================
-// PUSH-TO-TALK (mantén presionado)
-// ===============================
-let isRecording = false;
-let busy = false;
+            <!-- AUTO-STOP (CLICK) -->
+            <button id="btnRecord" class="btnRec" title="Click para hablar (auto-stop)">
+              <span class="dot off" id="recDot"></span>
+              <span id="btnText">Hablar</span>
+            </button>
 
-async function startPTT(){ ... }
-async function stopPTT(){ ... }
+            <select id="mode">
+              <option value="coach">Coach</option>
+              <option value="friendly">Friendly</option>
+              <option value="strict">Strict</option>
+            </select>
 
-btn.onpointerdown = ...
-btn.onpointerup = ...
-btn.ontouchstart = ...
-btn.ontouchend = ...
+            <select id="micSelect" title="Micrófono"></select>
+
+            <button id="btnTest">Probar Chat (texto)</button>
+            <button id="btnClear">Limpiar</button>
+
+            <div class="barWrap">
+              <div class="meter" title="Nivel de audio"><div id="meterFill"></div></div>
+              <div class="lbl">Nivel de audio</div>
+            </div>
+          </div>
+
+          <div class="hr"></div>
+
+          <div class="row">
+            <div>Estado: <b id="state">idle</b></div>
+            <div class="lbl" id="hint"></div>
+          </div>
+
+          <div class="hr"></div>
+          <div class="log" id="log"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- IMPORTANTE: pipeline primero, recorder después -->
-  <script src="./voicePipeline.js?v=5"></script>
-  <script src="./voiceRecorder.js?v=5"></script>
+  <script src="./voicePipeline.js?v=10"></script>
+  <script src="./voiceRecorder.js?v=10"></script>
 
   <script>
     const $ = (id)=>document.getElementById(id);
@@ -118,7 +141,7 @@ btn.ontouchend = ...
     function setState(s, note=""){ stateEl.textContent = s; hintEl.textContent = note; }
     function setRec(on){
       recDot.classList.toggle("off", !on);
-      btnText.textContent = on ? "Grabando… (suelta para enviar a IA)" : "Mantén presionado para hablar";
+      btnText.textContent = on ? "Grabando… (click para stop)" : "Hablar";
     }
     function setMeter(v){
       const pct = Math.max(0, Math.min(1, v))*100;
@@ -126,7 +149,7 @@ btn.ontouchend = ...
       meterFill.style.background = pct>8 ? "rgba(46,229,157,.9)" : "rgba(255,255,255,.35)";
     }
 
-    // Avatar
+    // Avatar autoplay attempt
     (async ()=>{
       try{ await vid.play(); }catch(e){}
       vid.addEventListener("error", ()=>{
@@ -137,6 +160,7 @@ btn.ontouchend = ...
     // Meter hook (lo llama voiceRecorder.js)
     window.VX_onMeter = (v)=>setMeter(v);
 
+    // Mic list
     async function refreshMics(){
       micSel.innerHTML = "";
       try{
@@ -162,6 +186,7 @@ btn.ontouchend = ...
       if(window.VX_setMic) window.VX_setMic(micSel.value);
     };
 
+    // Test / Clear
     $("btnTest").onclick = async ()=>{
       setState("thinking","Probando chat…");
       addLog("SYS: CHAT (test)…");
@@ -181,64 +206,77 @@ btn.ontouchend = ...
 
     $("btnClear").onclick = ()=>{ logEl.textContent=""; setState("idle",""); };
 
-    // ===============================
-    // PUSH-TO-TALK (mantén presionado)
-    // ===============================
-    let isRecording = false;
-    let busy = false;
+    // =======================================================
+    // AUTO-STOP PRO (Click-to-talk)
+    // Click 1: inicia turno (se detiene solo por silencio)
+    // Click 2 (si está grabando): STOP manual
+    // Requiere voiceRecorder.js PRO:
+    //  - window.VX_startAutoTalk({mode,onLog,onState})
+    //  - window.VX_forceStop()
+    // =======================================================
 
-    async function startPTT(){
-      if(busy || isRecording) return;
-      busy = true;
-      try{
-        isRecording = true;
-        setRec(true);
-        setState("listening","Mantén presionado… suelta para enviar a IA");
-        addLog("SYS: Escuchando…");
-        await window.VX_startRecording();
-      }catch(err){
-        isRecording = false;
-        setRec(false);
-        setState("error","Revisa consola");
-        addLog("SYS: ERROR: " + (err?.message || String(err)));
-        alert("Falló micrófono. Revisa consola.");
-      }finally{
-        busy = false;
-      }
+    let VX_uiBusy = false;
+
+    function VX_isListening(){
+      return (stateEl.textContent || "").toLowerCase() === "listening";
     }
 
-    async function stopPTT(){
-      if(busy || !isRecording) return;
-      busy = true;
+    btn.onclick = async ()=>{
+      if(VX_uiBusy) return;
+
       try{
-        isRecording = false;
-        setRec(false);
-        setState("thinking","Procesando STT → IA → TTS");
-        await window.VX_stopRecordingAndRun({
+        // Si ya está escuchando, este click es STOP manual
+        if(VX_isListening()){
+          addLog("SYS: Stop manual…");
+          window.VX_forceStop?.();
+          return;
+        }
+
+        // Iniciamos un turno con AUTO-STOP
+        VX_uiBusy = true;
+        setRec(true);
+        setState("listening","Habla normal… se detiene con silencio (~0.7s). Click de nuevo para Stop manual.");
+
+        await window.VX_startAutoTalk({
           mode: modeSel.value,
           onLog: addLog,
-          onState: (s)=>setState(s)
+          onState: (s)=>{
+            const ss = (s||"").toLowerCase();
+            if(ss === "listening"){
+              setRec(true);
+              setState("listening","Habla… se detiene con silencio. Click para Stop manual.");
+            }else if(ss === "thinking"){
+              setRec(false);
+              setState("thinking","Procesando STT → IA → TTS…");
+            }else if(ss === "idle"){
+              setRec(false);
+              setState("idle","Listo");
+            }else if(ss === "error"){
+              setRec(false);
+              setState("error","Revisa consola");
+            }else{
+              setState(s,"");
+            }
+          }
         });
-        setState("idle","Listo");
-        try{ await vid.play(); }catch(e){}
+
       }catch(err){
+        console.error(err);
+        setRec(false);
         setState("error","Revisa consola");
         addLog("SYS: ERROR: " + (err?.message || String(err)));
-        alert("Falló voz/IA: " + (err?.message || String(err)));
+        alert("Falló voz/IA. Revisa consola.");
       }finally{
-        busy = false;
+        VX_uiBusy = false;
+
+        if(!VX_isListening()) setRec(false);
+
+        const st = (stateEl.textContent || "").toLowerCase();
+        if(st !== "error" && st !== "thinking"){
+          setState("idle","Listo");
+        }
       }
-    }
-
-    // Pointer events (funciona en mouse + touch)
-    btn.onpointerdown = (e)=>{ e.preventDefault(); startPTT(); };
-    btn.onpointerup = (e)=>{ e.preventDefault(); stopPTT(); };
-    btn.onpointerleave = (e)=>{ if(isRecording) stopPTT(); };
-    btn.onpointercancel = (e)=>{ if(isRecording) stopPTT(); };
-
-    // Fallback: si el navegador no soporta pointer events bien
-    btn.ontouchstart = (e)=>{ e.preventDefault(); startPTT(); };
-    btn.ontouchend = (e)=>{ e.preventDefault(); stopPTT(); };
+    };
 
     // Init
     (async ()=>{
@@ -253,6 +291,7 @@ btn.ontouchend = ...
   </script>
 </body>
 </html>
+
 
 
 
