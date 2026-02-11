@@ -8,8 +8,24 @@
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./assets/icon-192.png">
   <link rel="stylesheet" href="./styles.css" />
+  <button id="btnHold" style="padding:12px 16px;font-size:16px;">
+  Mantén presionado para hablar
+</button>
+<div id="log" style="margin-top:10px;font-family:Arial;"></div>
+
+<script>
+  const btn = document.getElementById("btnHold");
+  btn.addEventListener("mousedown", () => startRec());
+  btn.addEventListener("mouseup", () => runVoiceTurn());
+
+  // Para celular (touch)
+  btn.addEventListener("touchstart", (e) => { e.preventDefault(); startRec(); });
+  btn.addEventListener("touchend", (e) => { e.preventDefault(); runVoiceTurn(); });
+</script>
+
 </head>
   <script src="./voicePipeline.js"></script>
+  <script src="./voiceRecorder.js"></script>
 <body>
   <div class="bg"></div>
   <div class="noise"></div>
