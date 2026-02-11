@@ -79,42 +79,19 @@
 
         <div class="card">
           <div class="row">
-            <!-- PUSH-TO-TALK -->
-            <button id="btnRecord" class="btnRec" title="Mantén presionado para grabar">
-              <span class="dot off" id="recDot"></span>
-              <span id="btnText">Mantén presionado para hablar</span>
-            </button>
+            // ===============================
+// PUSH-TO-TALK (mantén presionado)
+// ===============================
+let isRecording = false;
+let busy = false;
 
-            <select id="mode">
-              <option value="coach">Coach</option>
-              <option value="friendly">Friendly</option>
-              <option value="strict">Strict</option>
-            </select>
+async function startPTT(){ ... }
+async function stopPTT(){ ... }
 
-            <select id="micSelect" title="Micrófono"></select>
-
-            <button id="btnTest">Probar Chat (texto)</button>
-            <button id="btnClear">Limpiar</button>
-
-            <div class="barWrap">
-              <div class="meter" title="Nivel de audio"><div id="meterFill"></div></div>
-              <div class="lbl">Nivel de audio</div>
-            </div>
-          </div>
-
-          <div class="hr"></div>
-
-          <div class="row">
-            <div>Estado: <b id="state">idle</b></div>
-            <div class="lbl" id="hint"></div>
-          </div>
-
-          <div class="hr"></div>
-          <div class="log" id="log"></div>
-        </div>
-      </div>
-    </div>
-  </div>
+btn.onpointerdown = ...
+btn.onpointerup = ...
+btn.ontouchstart = ...
+btn.ontouchend = ...
 
   <!-- IMPORTANTE: pipeline primero, recorder después -->
   <script src="./voicePipeline.js?v=5"></script>
