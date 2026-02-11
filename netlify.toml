@@ -1,15 +1,9 @@
 [build]
   publish = "."
-  functions = "netlify/functions"
+  command = ""
 
-# API -> Netlify Functions
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
 
-# SPA fallback (keep AFTER /api)
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
