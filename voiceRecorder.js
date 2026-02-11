@@ -1,10 +1,5 @@
-// voiceRecorder.js
 (() => {
-  // Evita duplicar si el script se carga 2 veces
-  if (window.__voiceRecorderLoaded) {
-    console.warn("⚠️ voiceRecorder already loaded, skipping");
-    return;
-  }
+  if (window.__voiceRecorderLoaded) return;
   window.__voiceRecorderLoaded = true;
 
   let mediaRecorder;
@@ -17,12 +12,12 @@
     mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
     mediaRecorder.start();
     console.log("🎙️ recording...");
+    window.__voiceState?.("listening");
   }
 
   function stopRec() {
     return new Promise((resolve) => {
       mediaRecorder.onstop = () => {
-        console.log("🛑 stopped");
         const blob = new Blob(chunks, { type: "audio/webm" });
         resolve(blob);
       };
@@ -33,29 +28,30 @@
   async function runVoiceTurn() {
     try {
       const blob = await stopRec();
-      console.log("⏳ STT...");
+      window.__voiceState?.("thinking");
+
       const text = await window.transcribeAudio(blob);
-      console.log("YOU:", text);
+      window.__voiceLog?.("YOU", text);
 
-      console.log("🤖 CHAT...");
       const reply = await window.chatReply(text);
-      console.log("BOT:", reply);
+      window.__voiceLog?.("BOT", reply);
 
-      console.log("🔊 TTS...");
+      window.__voiceState?.("speaking");
       const buf = await window.ttsAudio(reply);
       await window.playAudio(buf);
 
+      window.__voiceState?.("idle");
     } catch (e) {
       console.error("❌ Voice turn failed:", e);
+      window.__voiceState?.("error");
       alert("Falló voz/IA: " + (e?.message || e));
     }
   }
 
-  // Exporta handlers globales para tu HTML
   window.startRec = startRec;
   window.runVoiceTurn = runVoiceTurn;
 
-  console.log("✅ voiceRecorder loaded");
+  console.log("✅ voiceRecorder ready");
 })();
 
 
