@@ -6,16 +6,22 @@
   <title>ARGUS SPEAK LAB-X — Avatar Beta</title>
   <style>
     body{font-family:Arial,system-ui,sans-serif;margin:0;padding:16px;background:#0b1220;color:#e8eefc}
-    .card{max-width:820px;margin:0 auto;background:#0f1b34;border:1px solid rgba(255,255,255,.08);
+    .card{max-width:900px;margin:0 auto;background:#0f1b34;border:1px solid rgba(255,255,255,.08);
       border-radius:16px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     button{padding:12px 16px;border-radius:12px;border:1px solid rgba(255,255,255,.14);
       background:#15284f;color:#fff;font-size:16px;cursor:pointer}
     button:active{transform:scale(.99)}
+    button.primary{background:#1d3b78}
     #voiceStatus{margin-top:10px;opacity:.9}
-    pre{white-space:pre-wrap;background:rgba(255,255,255,.06);padding:12px;border-radius:12px;min-height:150px}
+    pre{white-space:pre-wrap;background:rgba(255,255,255,.06);padding:12px;border-radius:12px;min-height:170px}
     .hint{opacity:.7;font-size:13px;margin-top:6px}
     .pill{display:inline-block;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.08);font-size:12px}
+    .meter{
+      width:140px;height:10px;border-radius:999px;background:rgba(255,255,255,.08);
+      overflow:hidden;border:1px solid rgba(255,255,255,.10)
+    }
+    .bar{height:100%;width:0%;}
   </style>
 </head>
 
@@ -27,11 +33,13 @@
     </div>
 
     <div class="hint">
-      Mantén presionado para hablar. Si no detecta voz, habla 2–3s cerca del mic.
+      Toca el botón para hablar. Se detiene solo cuando detecta silencio (~0.7s).
+      Si estás en lugar ruidoso, habla más cerca del mic.
     </div>
 
     <div class="row" style="margin-top:12px;">
-      <button id="btnHold">Mantén presionado para hablar</button>
+      <button class="primary" id="btnTalk">🎙️ Tocar para hablar</button>
+      <div class="meter" title="Nivel de voz"><div class="bar" id="vuBar"></div></div>
       <button id="btnTestChat">Probar Chat (texto)</button>
       <button id="btnClear">Limpiar</button>
     </div>
@@ -42,31 +50,40 @@
     <pre id="voiceLog"></pre>
   </div>
 
-  <!-- ORDEN CORRECTO + cache-bust -->
-  <script src="./voicePipeline.js?v=200"></script>
-  <script src="./voiceRecorder.js?v=200"></script>
+  <!-- ORDEN CORRECTO -->
+  <script src="./voicePipeline.js?v=300"></script>
+  <script src="./voiceRecorder.js?v=300"></script>
 
   <script>
     const statusEl = document.getElementById("voiceStatus");
     const logEl = document.getElementById("voiceLog");
     const apiEl = document.getElementById("apiStatus");
+    const btnTalk = document.getElementById("btnTalk");
+    const vuBar = document.getElementById("vuBar");
 
     window.__voiceState = (s) => statusEl.textContent = "Estado: " + s;
     window.__voiceLog = (who, text) => {
       const line = `${who}: ${text}`;
       logEl.textContent = (logEl.textContent + "\n" + line).trim();
     };
+    window.__voiceVU = (p) => { // p: 0..1
+      const pct = Math.max(0, Math.min(1, p)) * 100;
+      vuBar.style.width = pct + "%";
+    };
 
     document.getElementById("btnClear").addEventListener("click", () => {
       logEl.textContent = "";
       window.__voiceState("idle");
+      window.__voiceVU(0);
     });
 
-    const btn = document.getElementById("btnHold");
-    btn.addEventListener("mousedown", () => window.VX_startRec());
-    btn.addEventListener("mouseup", () => window.VX_runVoiceTurn());
-    btn.addEventListener("touchstart", (e) => { e.preventDefault(); window.VX_startRec(); }, { passive:false });
-    btn.addEventListener("touchend", (e) => { e.preventDefault(); window.VX_runVoiceTurn(); }, { passive:false });
+    btnTalk.addEventListener("click", async () => {
+      const isRec = !!window.VX_isRecording?.();
+      if (!isRec) btnTalk.textContent = "⏹️ Grabando... (se detiene solo)";
+      await window.VX_toggleTalk();
+      // si se detuvo, vuelve a texto normal
+      if (!window.VX_isRecording?.()) btnTalk.textContent = "🎙️ Tocar para hablar";
+    });
 
     document.getElementById("btnTestChat").addEventListener("click", async () => {
       try {
@@ -77,7 +94,6 @@
       }
     });
 
-    // Mini check rápido
     apiEl.textContent = "API: " + [
       "STT " + (typeof window.VX_transcribeAudio),
       "CHAT " + (typeof window.VX_chatReply),
@@ -92,4 +108,5 @@
   </script>
 </body>
 </html>
+
 
