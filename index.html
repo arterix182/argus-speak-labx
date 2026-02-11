@@ -3,250 +3,207 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Avatar Beta (Voz → IA → Voz)</title>
-
+  <title>ARGUS SPEAK LAB-X — Avatar Beta</title>
+  <meta name="theme-color" content="#0b1630" />
   <style>
     :root{
-      --bg1:#071024; --bg2:#0b1b3a;
-      --cardA:rgba(18,45,95,.86);
-      --cardB:rgba(10,25,55,.86);
-      --txt:#eaf2ff; --muted:rgba(234,242,255,.72);
-      --line:rgba(255,255,255,.10);
-      --shadow:0 20px 60px rgba(0,0,0,.45);
-      --radius:22px;
-      --ok:#32d583; --warn:#fdb022; --bad:#ff4d4d;
-      --mouth:0.10; /* 0..1 (lo mueve vxAvatar.js) */
-      --glow:0.0;  /* 0..1 */
+      --bg1:#071027;
+      --bg2:#0b1630;
+      --card:#0f2448;
+      --card2:#0c1c3b;
+      --txt:#eaf2ff;
+      --muted:#b7c7e6;
+      --btn:#173a74;
+      --btn2:#122a55;
+      --ok:#46f2a5;
+      --warn:#ffd06a;
+      --err:#ff6b6b;
+      --stroke:rgba(255,255,255,.08);
+      --glow:rgba(88,170,255,.18);
     }
     *{box-sizing:border-box}
     body{
-      margin:0; min-height:100vh;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       color:var(--txt);
-      background:
-        radial-gradient(1200px 600px at 20% 10%, rgba(80,160,255,.22), transparent 60%),
-        radial-gradient(900px 600px at 80% 0%, rgba(140,90,255,.20), transparent 55%),
-        linear-gradient(180deg, var(--bg1), var(--bg2));
-      display:flex; justify-content:center; padding:24px;
+      background: radial-gradient(1200px 700px at 20% 0%, #13386d 0%, transparent 60%),
+                  radial-gradient(900px 600px at 90% 10%, #4e2d6b 0%, transparent 55%),
+                  linear-gradient(180deg, var(--bg2), var(--bg1));
+      min-height:100vh;
     }
-    .wrap{ width:min(1100px,100%); display:flex; flex-direction:column; gap:18px; }
-
+    .wrap{
+      max-width:1100px;
+      margin:0 auto;
+      padding:28px 18px 40px;
+    }
     .card{
-      background:linear-gradient(180deg, var(--cardA), var(--cardB));
-      border:1px solid var(--line);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
-      padding:22px;
-      position:relative;
-      overflow:hidden;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border:1px solid var(--stroke);
+      box-shadow: 0 18px 60px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.02) inset;
+      border-radius:26px;
+      padding:22px 22px 18px;
+      backdrop-filter: blur(8px);
     }
-
-    .header{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
-    h1{ margin:0; font-size:34px; letter-spacing:.2px; display:flex; gap:12px; align-items:center; }
-    .mic{ width:38px; height:38px; display:grid; place-items:center; border-radius:14px;
-      background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); }
-    .sub{ margin-top:6px; color:var(--muted); font-size:14.5px; line-height:1.35; }
-
-    .pill{
-      display:inline-flex; align-items:center; gap:10px;
-      padding:10px 14px; border-radius:999px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(0,0,0,.14);
-      color:rgba(255,255,255,.85);
-      font-size:13px; white-space:nowrap;
-    }
-
-    .grid{
-      display:grid;
-      grid-template-columns: 380px 1fr;
-      gap:16px;
-      margin-top:18px;
-    }
-    @media (max-width: 920px){
-      .grid{ grid-template-columns: 1fr; }
-    }
-
-    /* === Avatar Card === */
-    .avatarCard{
-      background:rgba(0,0,0,.14);
-      border:1px solid rgba(255,255,255,.10);
-      border-radius:20px;
-      padding:16px;
-      position:relative;
-      overflow:hidden;
-    }
-    .avatarTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .avatarName{ font-weight:800; letter-spacing:.3px; }
-    .stateBadge{
-      padding:6px 10px; border-radius:999px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(255,255,255,.06);
-      font-size:12px; color:rgba(255,255,255,.88);
-    }
-
-    .orb{
-      margin-top:14px;
-      width:100%;
-      aspect-ratio: 1 / 1;
-      border-radius:24px;
-      background:
-        radial-gradient(140px 140px at 30% 25%, rgba(80,160,255,.35), transparent 55%),
-        radial-gradient(140px 140px at 70% 35%, rgba(140,90,255,.28), transparent 55%),
-        radial-gradient(200px 200px at 50% 70%, rgba(50,213,131,.20), transparent 60%),
-        rgba(255,255,255,.04);
-      border:1px solid rgba(255,255,255,.10);
-      position:relative;
-      display:grid;
-      place-items:center;
-      box-shadow: inset 0 0 80px rgba(0,0,0,.35);
-    }
-
-    .halo{
-      position:absolute; inset:-24px;
-      border-radius:32px;
-      filter: blur(18px);
-      opacity: calc(0.15 + var(--glow) * 0.35);
-      background:
-        radial-gradient(circle at 40% 30%, rgba(50,213,131,.45), transparent 55%),
-        radial-gradient(circle at 70% 45%, rgba(80,160,255,.40), transparent 60%),
-        radial-gradient(circle at 55% 75%, rgba(140,90,255,.35), transparent 60%);
-      pointer-events:none;
-    }
-
-    /* Cara minimalista (SVG-like con divs) */
-    .face{
-      width:78%;
-      height:78%;
-      border-radius:28px;
-      background:rgba(0,0,0,.18);
-      border:1px solid rgba(255,255,255,.10);
-      position:relative;
-      box-shadow: 0 18px 55px rgba(0,0,0,.35);
-      display:grid;
-      place-items:center;
-    }
-    .eyes{
-      position:absolute;
-      top:32%;
-      left:50%;
-      transform:translateX(-50%);
-      width:70%;
+    .top{
       display:flex;
+      align-items:flex-start;
       justify-content:space-between;
-      padding:0 8%;
+      gap:14px;
+      margin-bottom:18px;
     }
-    .eye{
-      width:20px; height:20px;
-      border-radius:999px;
-      background:rgba(234,242,255,.85);
-      box-shadow: 0 0 18px rgba(80,160,255,.35);
-      transform: scale(1);
-    }
-    .mouth{
-      position:absolute;
-      top:58%;
-      left:50%;
-      transform:translateX(-50%);
-      width:42%;
-      height:18px;
-      border-radius:999px;
-      background:rgba(234,242,255,.10);
-      border:1px solid rgba(255,255,255,.12);
-      overflow:hidden;
-    }
-    .mouthInner{
-      position:absolute;
-      left:50%;
-      top:50%;
-      transform:translate(-50%,-50%);
-      width: calc(40% + var(--mouth) * 60%);
-      height: calc(18% + var(--mouth) * 82%);
-      border-radius:999px;
-      background:rgba(234,242,255,.80);
-      opacity: calc(0.25 + var(--mouth) * 0.75);
-    }
-
-    .avatarHint{ margin-top:12px; color:rgba(255,255,255,.78); font-size:13px; line-height:1.35; }
-
-    /* === Controls / Log === */
-    .controls{
-      background:rgba(0,0,0,.14);
-      border:1px solid rgba(255,255,255,.10);
-      border-radius:20px;
-      padding:16px;
-    }
-    .row{ display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
-
-    button{
-      border:1px solid rgba(255,255,255,.14);
-      background:linear-gradient(180deg, rgba(28,70,135,.95), rgba(18,50,100,.95));
-      color:var(--txt);
-      padding:14px 16px;
-      border-radius:16px;
-      cursor:pointer;
-      font-size:16px;
-      transition:.15s transform ease, .15s filter ease;
-    }
-    button:hover{ transform:translateY(-1px); filter:brightness(1.06); }
-    button:active{ transform:translateY(0px); filter:brightness(.98); }
-    button.secondary{ background:rgba(255,255,255,.06); }
-
-    .btnTalk{
-      min-width:310px;
+    h1{
+      margin:0;
+      font-weight:900;
+      letter-spacing:.2px;
+      font-size:34px;
+      line-height:1.1;
       display:flex;
-      align-items:center;
-      justify-content:center;
       gap:12px;
-      font-weight:750;
+      align-items:center;
     }
-    .dot{
-      width:12px; height:12px; border-radius:99px;
-      background:rgba(255,255,255,.25);
-      box-shadow:0 0 0 0 rgba(50,213,131,.0);
-      transition:.15s;
-    }
-    .dot.live{ background:var(--ok); box-shadow:0 0 0 10px rgba(50,213,131,.10); }
-
-    select{
-      padding:14px 16px;
-      border-radius:16px;
-      border:1px solid rgba(255,255,255,.14);
+    .micIcon{
+      width:34px;height:34px;
+      display:inline-grid;place-items:center;
+      border-radius:12px;
       background:rgba(255,255,255,.06);
+      border:1px solid var(--stroke);
+      box-shadow:0 0 22px var(--glow);
+    }
+    .sub{
+      margin:8px 0 0;
+      color:var(--muted);
+      font-size:15px;
+      line-height:1.4;
+    }
+    .pill{
+      padding:10px 14px;
+      border-radius:999px;
+      border:1px solid var(--stroke);
+      background:rgba(255,255,255,.05);
+      color:var(--muted);
+      font-size:13px;
+      white-space:nowrap;
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:12px;
+      align-items:center;
+      margin:14px 0 10px;
+    }
+    button, select, input{
+      border-radius:16px;
+      border:1px solid var(--stroke);
+      background:rgba(255,255,255,.05);
       color:var(--txt);
+      padding:12px 14px;
       font-size:16px;
       outline:none;
     }
-
-    .status{ margin-top:8px; color:var(--muted); font-size:16px; }
-    .log{
-      margin-top:12px;
-      background:rgba(0,0,0,.18);
-      border:1px solid rgba(255,255,255,.10);
-      border-radius:18px;
-      padding:16px;
-      min-height:220px;
-      max-height:360px;
-      overflow:auto;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      font-size:15px;
-      line-height:1.45;
-      white-space:pre-wrap;
+    button{
+      cursor:pointer;
+      background:linear-gradient(180deg, rgba(45,130,255,.25), rgba(45,130,255,.10));
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      transition: transform .08s ease, filter .12s ease;
     }
-
+    button:active{ transform: translateY(1px); }
+    button.secondary{
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
+    }
+    button.danger{
+      background: linear-gradient(180deg, rgba(255,107,107,.22), rgba(255,107,107,.10));
+    }
+    select{
+      min-width:180px;
+      padding-right:34px;
+    }
+    .recBtn{
+      min-width:280px;
+      display:flex;
+      align-items:center;
+      gap:12px;
+      justify-content:center;
+      font-weight:800;
+      letter-spacing:.2px;
+    }
+    .dot{
+      width:12px;height:12px;border-radius:99px;
+      background: rgba(255,255,255,.25);
+      box-shadow: 0 0 0 6px rgba(255,255,255,.06);
+    }
+    .dot.on{
+      background: var(--ok);
+      box-shadow: 0 0 0 6px rgba(70,242,165,.15), 0 0 18px rgba(70,242,165,.35);
+    }
     .vuWrap{
-      flex:1;
-      min-width:240px;
-      height:16px;
-      border-radius:999px;
-      background:rgba(255,255,255,.10);
-      border:1px solid rgba(255,255,255,.10);
-      overflow:hidden;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:8px 10px;
+      border:1px solid var(--stroke);
+      border-radius:16px;
+      background:rgba(0,0,0,.15);
+      min-width:220px;
     }
-    .vuFill{
+    .vu{
+      height:10px;
+      flex:1;
+      border-radius:999px;
+      background:rgba(255,255,255,.08);
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.06);
+    }
+    .vu > div{
       height:100%;
       width:0%;
-      background:linear-gradient(90deg, rgba(50,213,131,.95), rgba(253,176,34,.95), rgba(255,77,77,.95));
-      transition: width 80ms linear;
+      background: linear-gradient(90deg, rgba(70,242,165,.95), rgba(88,170,255,.95));
+      box-shadow: 0 0 18px rgba(88,170,255,.25);
+      transition: width .06s linear;
+    }
+    .label{
+      font-size:13px;
+      color:var(--muted);
+    }
+    .status{
+      margin:10px 0 12px;
+      color:var(--muted);
+      font-weight:700;
+    }
+    .logTitle{
+      margin:10px 0 10px;
+      font-size:24px;
+      font-weight:900;
+    }
+    .log{
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border:1px solid var(--stroke);
+      border-radius:22px;
+      padding:18px;
+      min-height:260px;
+      white-space:pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size:14px;
+      color:#eaf2ff;
+      overflow:auto;
+    }
+    .tagSYS{ color:#b9d4ff; font-weight:900;}
+    .tagYOU{ color:#ffd06a; font-weight:900;}
+    .tagBOT{ color:#46f2a5; font-weight:900;}
+    .tagERR{ color:#ff6b6b; font-weight:900;}
+    .spacer{ flex:1; }
+    .small{
+      font-size:12px;
+      color:var(--muted);
+      opacity:.9;
+    }
+    @media (max-width:720px){
+      h1{ font-size:28px; }
+      .recBtn{ min-width:100%; }
+      .vuWrap{ width:100%; }
+      select{ width:100%; }
     }
   </style>
 </head>
@@ -254,194 +211,235 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <div class="header">
+      <div class="top">
         <div>
-          <h1><span class="mic">🧠</span> Avatar Beta (Voz → IA → Voz)</h1>
+          <h1><span class="micIcon">🎙️</span> Avatar Beta (Voz → IA → Voz)</h1>
           <div class="sub">
-            Ruta A activada: <b>avatar vivo</b> + <b>lip-sync</b> + <b>timeouts</b>.
-            Si algo falla, no se rompe: se recupera.
+            Toca el botón para hablar. Puedes detener manualmente tocándolo otra vez.<br/>
+            Si estás en lugar ruidoso, acércate al mic. Usa el selector de mic si la barra no se mueve.
           </div>
         </div>
-        <div class="pill" id="apiPill">API: cargando…</div>
+        <div class="pill" id="apiPill">API: STT | CHAT | TTS</div>
       </div>
 
-      <div class="grid">
-        <!-- Avatar -->
-        <div class="avatarCard">
-          <div class="avatarTop">
-            <div class="avatarName">ARGUS • AVATAR</div>
-            <div class="stateBadge" id="avatarBadge">idle</div>
-          </div>
+      <div class="row">
+        <button class="recBtn" id="btnTalk">
+          <span class="dot" id="dot"></span>
+          <span id="btnTalkTxt">Grabar… (toca para hablar)</span>
+        </button>
 
-          <div class="orb" id="orb">
-            <div class="halo"></div>
-            <div class="face" id="face">
-              <div class="eyes">
-                <div class="eye" id="eyeL"></div>
-                <div class="eye" id="eyeR"></div>
-              </div>
-              <div class="mouth">
-                <div class="mouthInner" id="mouthInner"></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="avatarHint">
-            • Listening: brillo verde<br/>
-            • Thinking: pulso violeta<br/>
-            • Speaking: boca se mueve con el audio (lip-sync)<br/>
-            • Error: alerta roja y mensaje claro
-          </div>
+        <div class="vuWrap" title="Nivel de audio">
+          <div class="vu"><div id="vuFill"></div></div>
+          <div class="label">Nivel</div>
         </div>
 
-        <!-- Controls / Log -->
-        <div class="controls">
-          <div class="row">
-            <button id="btnTalk" class="btnTalk">
-              <span id="dot" class="dot"></span>
-              <span id="btnTalkLabel">Toca para hablar</span>
-            </button>
+        <div class="spacer"></div>
 
-            <div class="vuWrap" title="Nivel de audio">
-              <div id="vuFill" class="vuFill"></div>
-            </div>
+        <select id="modeSel" title="Modo">
+          <option value="coach">Coach</option>
+          <option value="grammar">Grammar</option>
+          <option value="conversation">Conversation</option>
+        </select>
 
-            <select id="modeSel" title="Modo del coach">
-              <option value="coach">Coach</option>
-              <option value="interview">Interview</option>
-              <option value="work">Work English</option>
-              <option value="casual">Casual</option>
-            </select>
+        <select id="micSel" title="Micrófono"></select>
 
-            <button id="btnText" class="secondary">Probar Chat (texto)</button>
-            <button id="btnClear" class="secondary">Limpiar</button>
-            <button id="btnMemClear" class="secondary">Borrar memoria</button>
-          </div>
+        <button id="btnMicTest" class="secondary">Probar mic</button>
+        <button id="btnText" class="secondary">Probar Chat (texto)</button>
+        <button id="btnClear" class="secondary">Limpiar</button>
+        <button id="btnWipe" class="danger">Borrar memoria</button>
+      </div>
 
-          <div class="status">Estado: <b id="state">idle</b></div>
+      <div class="status">Estado: <span id="statusTxt">idle</span></div>
 
-          <div style="font-weight:800; font-size:18px; margin-top:14px;">Log</div>
-          <div id="log" class="log"></div>
-        </div>
+      <div class="logTitle">Log</div>
+      <div class="log" id="logBox"></div>
+
+      <div class="small" style="margin-top:10px;">
+        Tip: Si “Nivel” nunca se mueve, cambia el mic en el selector y presiona “Probar mic”.
       </div>
     </div>
   </div>
 
-  <!-- ORDEN DE SCRIPTS (importante) -->
-  <script src="./voicePipeline.js?v=500"></script>
-  <script src="./vxStability.js?v=1"></script>
-  <script src="./vxChatMemory.js?v=1"></script>
-  <script src="./vxAvatar.js?v=1"></script>
-  <script src="./voiceRecorder.js?v=500"></script>
+  <!-- 1) Pipeline primero (define VX_* funciones que usa el recorder) -->
+  <script src="./voicePipeline.js?v=1"></script>
+
+  <!-- 2) Recorder después (usa VX_* y expone VX_toggleTalk, VX_runMicTest) -->
+  <script src="./voiceRecorder.js?v=1"></script>
 
   <script>
-    // ===== Hooks usados por recorder + avatar =====
-    const logEl = document.getElementById("log");
-    const stateEl = document.getElementById("state");
-    const dotEl = document.getElementById("dot");
-    const labelEl = document.getElementById("btnTalkLabel");
+    // ====== UI helpers (el recorder las usa) ======
+    const logBox = document.getElementById("logBox");
+    const statusTxt = document.getElementById("statusTxt");
+    const btnTalk = document.getElementById("btnTalk");
+    const btnTalkTxt = document.getElementById("btnTalkTxt");
+    const dot = document.getElementById("dot");
     const vuFill = document.getElementById("vuFill");
-    const apiPill = document.getElementById("apiPill");
+
+    const modeSel = document.getElementById("modeSel");
+    const micSel = document.getElementById("micSel");
+    const btnMicTest = document.getElementById("btnMicTest");
+    const btnText = document.getElementById("btnText");
+    const btnClear = document.getElementById("btnClear");
+    const btnWipe = document.getElementById("btnWipe");
 
     window.__voiceLog = (who, msg) => {
-      logEl.textContent += `${who}: ${msg}\n`;
-      logEl.scrollTop = logEl.scrollHeight;
+      const tag = who || "SYS";
+      const cls = tag === "SYS" ? "tagSYS" : tag === "YOU" ? "tagYOU" : tag === "BOT" ? "tagBOT" : "tagERR";
+      const line = `<span class="${cls}">${tag}:</span> ${escapeHtml(String(msg || ""))}\n`;
+      logBox.innerHTML += line;
+      logBox.scrollTop = logBox.scrollHeight;
     };
 
     window.__voiceState = (s) => {
-      stateEl.textContent = s;
-
+      statusTxt.textContent = s || "idle";
       if (s === "listening") {
-        dotEl.classList.add("live");
-        labelEl.textContent = "Grabando... (toca para detener)";
+        dot.classList.add("on");
+        btnTalkTxt.textContent = "Grabando… (toca para detener)";
       } else if (s === "thinking") {
-        dotEl.classList.remove("live");
-        labelEl.textContent = "Pensando…";
+        dot.classList.remove("on");
+        btnTalkTxt.textContent = "Procesando…";
       } else if (s === "speaking") {
-        dotEl.classList.remove("live");
-        labelEl.textContent = "Hablando…";
+        dot.classList.remove("on");
+        btnTalkTxt.textContent = "Hablando…";
       } else if (s === "error") {
-        dotEl.classList.remove("live");
-        labelEl.textContent = "Error (toca para reintentar)";
+        dot.classList.remove("on");
+        btnTalkTxt.textContent = "Error. Reintenta.";
       } else {
-        dotEl.classList.remove("live");
-        labelEl.textContent = "Toca para hablar";
+        dot.classList.remove("on");
+        btnTalkTxt.textContent = "Grabar… (toca para hablar)";
       }
-
-      // también se lo pasamos al avatar
-      window.VX_avatarSetState?.(s);
     };
 
     window.__voiceVU = (v) => {
-      const pct = Math.max(0, Math.min(1, Number(v || 0))) * 100;
-      vuFill.style.width = pct.toFixed(0) + "%";
+      const pct = Math.max(0, Math.min(1, v || 0)) * 100;
+      vuFill.style.width = pct.toFixed(1) + "%";
     };
 
-    // ===== UI =====
-    document.getElementById("btnTalk").addEventListener("click", async () => {
-      if (typeof window.VX_toggleTalk !== "function") {
-        alert("VX_toggleTalk no está listo. Revisa voiceRecorder.js");
-        return;
+    function escapeHtml(str){
+      return str.replace(/[&<>"']/g, m => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+      }[m]));
+    }
+
+    // ====== MIC selector support ======
+    window.VX_selectedMicId = ""; // voiceRecorder.js lo usa
+
+    async function loadMics(){
+      try{
+        // pide permiso para poder leer labels
+        await navigator.mediaDevices.getUserMedia({audio:true});
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const mics = devices.filter(d => d.kind === "audioinput");
+
+        micSel.innerHTML = "";
+        for(const d of mics){
+          const opt = document.createElement("option");
+          opt.value = d.deviceId;
+          opt.textContent = d.label || ("Mic " + d.deviceId.slice(0,6));
+          micSel.appendChild(opt);
+        }
+
+        window.VX_selectedMicId = micSel.value || "";
+        window.__voiceLog("SYS", `Mics detectados: ${mics.length}. Seleccionado: ${micSel.options[micSel.selectedIndex]?.textContent || "?"}`);
+      }catch(e){
+        console.error(e);
+        alert("No pude listar mics. Revisa permisos del navegador.");
       }
-      await window.VX_toggleTalk();
+    }
+
+    micSel.addEventListener("change", () => {
+      window.VX_selectedMicId = micSel.value || "";
+      window.__voiceLog("SYS", `Mic seleccionado: ${micSel.options[micSel.selectedIndex]?.textContent || "?"}`);
     });
 
-    document.getElementById("btnClear").addEventListener("click", () => {
-      logEl.textContent = "";
-      window.__voiceState("idle");
-      window.__voiceVU(0);
-      window.VX_avatarSetState?.("idle");
+    // ====== Buttons ======
+    btnTalk.addEventListener("click", async () => {
+      try{
+        if (typeof window.VX_toggleTalk !== "function") {
+          alert("VX_toggleTalk no está listo. Revisa voiceRecorder.js");
+          return;
+        }
+        await window.VX_toggleTalk();
+      }catch(e){
+        console.error(e);
+        alert("Falló el botón de hablar: " + (e?.message || e));
+      }
     });
 
-    document.getElementById("btnMemClear").addEventListener("click", () => {
-      window.VX_clearMemory?.();
-      window.__voiceLog("SYS", "Memoria borrada.");
+    btnMicTest.addEventListener("click", async () => {
+      try{
+        if (typeof window.VX_runMicTest !== "function") {
+          alert("VX_runMicTest no está listo. Revisa voiceRecorder.js");
+          return;
+        }
+        await window.VX_runMicTest(2500);
+      }catch(e){
+        console.error(e);
+        alert("Mic test falló: " + (e?.message || e));
+      }
     });
 
-    document.getElementById("modeSel").addEventListener("change", (e) => {
-      window.VX_setMode?.(e.target.value);
-      window.__voiceLog("SYS", `Modo: ${e.target.value}`);
-    });
+    btnText.addEventListener("click", async () => {
+      try{
+        const sample = prompt("Escribe algo en inglés para probar CHAT:", "I didn't have time yesterday.");
+        if (!sample) return;
 
-    document.getElementById("btnText").addEventListener("click", async () => {
-      const t = prompt("Escribe una frase en inglés:", "I no have time yesterday");
-      if (!t) return;
+        window.__voiceLog("YOU", sample);
 
-      try {
+        if (typeof window.VX_chatReply !== "function") {
+          alert("VX_chatReply no está listo. Revisa voicePipeline.js");
+          return;
+        }
         window.__voiceState("thinking");
-        window.__voiceLog("YOU", t);
+        const reply = await window.VX_chatReply(sample);
+        window.__voiceLog("BOT", reply || "(sin respuesta)");
 
-        const reply = await window.VX_chatReply(t);
-        window.__voiceLog("BOT", reply);
-
-        // intenta TTS (si existe)
-        if (window.VX_ttsAudio && window.VX_playAudio) {
-          window.__voiceLog("SYS", "TTS...");
+        // si existe TTS, lo reproducimos
+        if (window.VX_ttsAudio && window.VX_playAudio && reply) {
+          window.__voiceLog("SYS", "TTS…");
           window.__voiceState("speaking");
           const buf = await window.VX_ttsAudio(reply);
           await window.VX_playAudio(buf);
         }
+
         window.__voiceState("idle");
-      } catch (e) {
+      }catch(e){
         console.error(e);
         window.__voiceState("error");
         alert("Falló chat: " + (e?.message || e));
+        window.__voiceState("idle");
       }
     });
 
-    // Estado inicial
-    window.__voiceState("idle");
-    window.VX_setMode?.("coach");
+    btnClear.addEventListener("click", () => {
+      logBox.innerHTML = "";
+      window.__voiceVU(0);
+      window.__voiceState("idle");
+    });
 
-    apiPill.textContent = "API: " + [
-      "STT " + (typeof window.VX_transcribeAudio),
-      "CHAT " + (typeof window.VX_chatReply),
-      "TTS " + (typeof window.VX_ttsAudio),
-      "Stable " + (typeof window.VX_withTimeout)
-    ].join(" | ");
+    btnWipe.addEventListener("click", () => {
+      // Si tienes memoria en localStorage, bórrala aquí
+      try{
+        localStorage.removeItem("VX_memory");
+        localStorage.removeItem("VX_chat_history");
+      }catch{}
+      window.__voiceLog("SYS", "Memoria local borrada.");
+    });
+
+    // ====== Mode hook (si tu pipeline lo usa) ======
+    modeSel.addEventListener("change", () => {
+      window.VX_mode = modeSel.value;
+      window.__voiceLog("SYS", "Modo: " + window.VX_mode);
+    });
+    window.VX_mode = modeSel.value;
+
+    // Init
+    window.__voiceState("idle");
+    loadMics();
   </script>
 </body>
 </html>
+
 
 
 
