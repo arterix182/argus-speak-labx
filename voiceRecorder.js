@@ -1,9 +1,11 @@
-// voiceRecorder.js (COMPLETO - Call Mode PRO v4 persistente)
+// voiceRecorder.js (COMPLETO - Call Mode PRO v4 estable)
 // Requiere voicePipeline.js con:
 //   window.VX_transcribeAudio(blob) -> texto
 //   window.VX_chatReply(texto) -> reply
 //   window.VX_ttsAudio(reply) -> ArrayBuffer
-//   window.VX_playAudio(buf) -> Promise (espera a onended)
+//   window.VX_playAudio(buf) -> Promise (espera onended)
+// UI hook opcional:
+//   window.VX_onMeter(level01)
 
 let VX_deviceId = localStorage.getItem("VX_MIC") || "";
 
@@ -104,7 +106,9 @@ function VX_startMeterLoop(){
   VX_stopMeterLoop();
   const tick=()=>{
     const rms = VX_getRms();
-    if(typeof window.VX_onMeter==="function") window.VX_onMeter(Math.min(1, rms*3.2));
+    if(typeof window.VX_onMeter==="function"){
+      window.VX_onMeter(Math.min(1, rms*3.2));
+    }
     VX_meterRAF = requestAnimationFrame(tick);
   };
   VX_meterRAF = requestAnimationFrame(tick);
@@ -115,9 +119,9 @@ function VX_stopMeterLoop(){
   if(typeof window.VX_onMeter==="function") window.VX_onMeter(0);
 }
 
-// ======= MIC LIST =======
+// ===== MIC LIST =====
 async function VX_listMics(){
-  // trigger permission so labels appear
+  // Trigger permission so labels appear
   await navigator.mediaDevices.getUserMedia({audio:true})
     .then(s=>s.getTracks().forEach(t=>t.stop()))
     .catch(()=>{});
@@ -129,7 +133,7 @@ function VX_setMic(id){
   localStorage.setItem("VX_MIC", VX_deviceId);
 }
 
-// ======= CALL STREAM LIFECYCLE =======
+// ===== CALL STREAM LIFECYCLE =====
 async function VX_callEnsureStream(){
   if(VX_stream) return VX_stream;
   await VX_resumeAudioCtx();
@@ -160,7 +164,7 @@ function VX_buildPrompt(mode, userText){
   return `${base}\nEstilo: ${styles[mode] || styles.coach}\nUsuario dijo: "${userText}"`;
 }
 
-// ======= RECORD ONE TURN (auto-stop by silence) =======
+// ===== RECORD ONE TURN (auto-stop by silence) =====
 async function VX_recordOneTurn({onLog=()=>{}, onState=()=>{}}){
   await VX_callEnsureStream();
 
@@ -174,7 +178,7 @@ async function VX_recordOneTurn({onLog=()=>{}, onState=()=>{}}){
   VX_rec.ondataavailable = (ev)=>{ if(ev.data && ev.data.size) VX_chunks.push(ev.data); };
   VX_rec.start(VX_CFG.chunkMs);
 
-  // calibrate noise
+  // Calibrate noise
   const t0 = now();
   let noise=0,n=0;
   while(now()-t0 < VX_CFG.calibrateMs){
@@ -232,7 +236,7 @@ async function VX_recordOneTurn({onLog=()=>{}, onState=()=>{}}){
   return blob;
 }
 
-// ======= CALL LOOP =======
+// ===== CALL LOOP =====
 async function VX_callLoop({mode="coach", onLog=()=>{}, onState=()=>{}}){
   if(VX_busy) return;
   VX_busy = true;
@@ -242,7 +246,6 @@ async function VX_callLoop({mode="coach", onLog=()=>{}, onState=()=>{}}){
       const blob = await VX_recordOneTurn({onLog,onState});
       if(!VX_callActive) break;
       if(!blob){
-        // sin voz: reintenta sin matar la llamada
         await sleep(200);
         continue;
       }
@@ -263,13 +266,13 @@ async function VX_callLoop({mode="coach", onLog=()=>{}, onState=()=>{}}){
       const reply = await window.VX_chatReply(VX_buildPrompt(mode, clean));
       onLog("BOT: " + reply);
 
+      // 🔥 Aquí el estado que hace que el avatar pase a "speaking"
+      onState("speaking");
       onLog("SYS: TTS…");
       const audio = await window.VX_ttsAudio(reply);
-      await window.VX_playAudio(audio); // importante: espera a onended en pipeline
+      await window.VX_playAudio(audio);
 
-      onState("idle");
-
-      // mini pausa para estabilidad
+      if(VX_callActive) onState("listening");
       await sleep(150);
     }
   } catch(e){
@@ -281,7 +284,7 @@ async function VX_callLoop({mode="coach", onLog=()=>{}, onState=()=>{}}){
   }
 }
 
-// ======= PUBLIC API =======
+// ===== PUBLIC API =====
 async function VX_callStart({mode="coach", onLog=()=>{}, onState=()=>{}} = {}){
   VX_callActive = true;
   await VX_callEnsureStream();
@@ -290,8 +293,6 @@ async function VX_callStart({mode="coach", onLog=()=>{}, onState=()=>{}} = {}){
 function VX_callStop(){
   VX_callActive = false;
   VX_stopRequested = true;
-  // no apagamos stream aquí si quieres reconectar rápido;
-  // lo apagamos “de verdad” con VX_callHardStop:
 }
 function VX_callHardStop(){
   VX_callActive = false;
@@ -299,12 +300,11 @@ function VX_callHardStop(){
   VX_callReleaseStream();
   VX_stopKeepAlive();
 }
-
 function VX_forceStop(){
-  // fuerza cierre del turno actual
   VX_stopRequested = true;
 }
 
+// Expose
 window.VX_listMics = VX_listMics;
 window.VX_setMic = VX_setMic;
 
@@ -313,36 +313,11 @@ window.VX_callStop = VX_callStop;
 window.VX_callHardStop = VX_callHardStop;
 window.VX_forceStop = VX_forceStop;
 
-// Compat: si tu index aún llama startAutoTalk, lo dejamos vivo como “1 turno”
-window.VX_startAutoTalk = async ({mode="coach", onLog=()=>{}, onState=()=>{}} = {})=>{
-  VX_callActive = true;
-  try{
-    const blob = await VX_recordOneTurn({onLog,onState});
-    if(!blob) return;
-    onState("thinking"); onLog("SYS: STT…");
-    const clean = (await window.VX_transcribeAudio(blob) || "").trim();
-    if(!clean){ onState("idle"); return; }
-    onLog("YOU: "+clean);
-    onLog("SYS: CHAT…");
-    const reply = await window.VX_chatReply(VX_buildPrompt(mode, clean));
-    onLog("BOT: "+reply);
-    onLog("SYS: TTS…");
-    const audio = await window.VX_ttsAudio(reply);
-    await window.VX_playAudio(audio);
-    onState("idle");
-  } finally {
-    VX_callActive = false; // 1 turno
-  }
-};
-
 console.log("✅ voiceRecorder loaded (v4)", {
   VX_callStart: typeof window.VX_callStart,
   VX_callHardStop: typeof window.VX_callHardStop,
   VX_forceStop: typeof window.VX_forceStop
 });
-
-
-
 
 
 
