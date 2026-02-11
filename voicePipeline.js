@@ -1,30 +1,30 @@
-// voicePipeline.js (COMPLETO v4)
+// voicePipeline.js (COMPLETO v5 - STT por FormData)
 // Endpoints esperados:
-//   POST /api/stt  -> devuelve JSON { text: "..." }
-//   POST /api/chat -> devuelve JSON { reply: "..." }
-//   POST /api/tts  -> devuelve audio/mpeg (o similar)
-
-async function VX_blobToBase64(blob){
-  const ab = await blob.arrayBuffer();
-  const bytes = new Uint8Array(ab);
-  let bin = "";
-  for(let i=0;i<bytes.length;i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
+//   POST /api/stt  -> JSON { text: "..." }
+//   POST /api/chat -> JSON { reply: "..." }
+//   POST /api/tts  -> audio/mpeg
 
 async function VX_transcribeAudio(blob){
-  const audioBase64 = await VX_blobToBase64(blob);
+  // ✅ STT en multipart/form-data (lo que tu función exige)
+  const fd = new FormData();
+
+  // Campo principal (el más común)
+  fd.append("file", blob, "audio.webm");
+
+  // Extras “por si acaso” (algunas funciones esperan otro nombre)
+  fd.append("audio", blob, "audio.webm");
+  fd.append("mimeType", blob.type || "audio/webm");
+
   const r = await fetch("/api/stt", {
     method: "POST",
-    headers: { "Content-Type":"application/json" },
-    body: JSON.stringify({
-      audioBase64,
-      mimeType: blob.type || "audio/webm"
-    })
+    body: fd
+    // ⚠️ NO pongas Content-Type aquí, el navegador lo calcula con boundary
   });
 
   let j;
-  try{ j = await r.json(); }catch(e){ j = { error: "Non-JSON response from /api/stt" }; }
+  try { j = await r.json(); }
+  catch { j = { error: "Non-JSON response from /api/stt" }; }
+
   if(!r.ok) throw new Error(JSON.stringify(j));
   return (j.text || "").trim();
 }
@@ -40,7 +40,7 @@ async function VX_chatReply(userText){
   });
 
   let j;
-  try{ j = await r.json(); }catch(e){ j = { error: "Non-JSON response from /api/chat" }; }
+  try{ j = await r.json(); }catch{ j = { error: "Non-JSON response from /api/chat" }; }
   if(!r.ok) throw new Error(JSON.stringify(j));
   return (j.reply || "").trim();
 }
@@ -65,14 +65,13 @@ async function VX_ttsAudio(text){
 let VX_currentAudio = null;
 
 async function VX_playAudio(buf){
-  // Corta audio previo
   try{
     if(VX_currentAudio){
       VX_currentAudio.pause();
       VX_currentAudio.src = "";
       VX_currentAudio = null;
     }
-  }catch(e){}
+  }catch{}
 
   const blob = new Blob([buf], { type:"audio/mpeg" });
   const url = URL.createObjectURL(blob);
@@ -81,17 +80,17 @@ async function VX_playAudio(buf){
 
   return new Promise((resolve, reject)=>{
     a.onended = ()=>{
-      try{ URL.revokeObjectURL(url); }catch(e){}
+      try{ URL.revokeObjectURL(url); }catch{}
       if(VX_currentAudio === a) VX_currentAudio = null;
       resolve();
     };
-    a.onerror = (e)=>{
-      try{ URL.revokeObjectURL(url); }catch(_){}
+    a.onerror = ()=>{
+      try{ URL.revokeObjectURL(url); }catch{}
       if(VX_currentAudio === a) VX_currentAudio = null;
       reject(new Error("Audio play error"));
     };
     a.play().catch(err=>{
-      try{ URL.revokeObjectURL(url); }catch(_){}
+      try{ URL.revokeObjectURL(url); }catch{}
       if(VX_currentAudio === a) VX_currentAudio = null;
       reject(err);
     });
@@ -104,8 +103,9 @@ window.VX_chatReply = VX_chatReply;
 window.VX_ttsAudio = VX_ttsAudio;
 window.VX_playAudio = VX_playAudio;
 
-console.log("✅ voicePipeline loaded", {
+console.log("✅ voicePipeline loaded (v5)", {
   VX_transcribeAudio: typeof window.VX_transcribeAudio,
   VX_chatReply: typeof window.VX_chatReply,
   VX_ttsAudio: typeof window.VX_ttsAudio
 });
+
