@@ -1,7 +1,6 @@
-// voicePipeline.js (COMPLETO)
+// voicePipeline.js (COMPLETO, VX_* para evitar choques)
 
-// ---- util: blob -> base64 ----
-async function blobToBase64(blob) {
+async function VX_blobToBase64(blob) {
   const ab = await blob.arrayBuffer();
   const bytes = new Uint8Array(ab);
   let binary = "";
@@ -9,9 +8,8 @@ async function blobToBase64(blob) {
   return btoa(binary);
 }
 
-// ---- STT (usa /api/stt) ----
-async function transcribeAudio(blob) {
-  const audioBase64 = await blobToBase64(blob);
+async function VX_transcribeAudio(blob) {
+  const audioBase64 = await VX_blobToBase64(blob);
 
   const r = await fetch("/api/stt", {
     method: "POST",
@@ -29,10 +27,9 @@ async function transcribeAudio(blob) {
   return (j.text || "").trim();
 }
 
-// ---- CHAT (usa /api/chat) ----
-async function chatReply(userText) {
+async function VX_chatReply(userText) {
   const clean = (userText || "").trim();
-  if (!clean) throw new Error("Empty userText (no speech detected)");
+  if (!clean) throw new Error("Empty userText");
 
   const r = await fetch("/api/chat", {
     method: "POST",
@@ -47,10 +44,9 @@ async function chatReply(userText) {
   return (j.reply || "").trim();
 }
 
-// ---- TTS (si ya tienes /api/tts) ----
-async function ttsAudio(text) {
+async function VX_ttsAudio(text) {
   const clean = (text || "").trim();
-  if (!clean) throw new Error("Empty text for TTS");
+  if (!clean) throw new Error("Empty text");
 
   const r = await fetch("/api/tts", {
     method: "POST",
@@ -62,8 +58,26 @@ async function ttsAudio(text) {
   return await r.arrayBuffer();
 }
 
-async function playAudio(buf) {
-  const blob = new Blob([buf], { type: "audio/mp
+async function VX_playAudio(buf) {
+  const blob = new Blob([buf], { type: "audio/mpeg" });
+  const url = URL.createObjectURL(blob);
+  const a = new Audio(url);
+  await a.play();
+  a.onended = () => URL.revokeObjectURL(url);
+}
+
+// Exporta “blindado”
+window.VX_transcribeAudio = VX_transcribeAudio;
+window.VX_chatReply = VX_chatReply;
+window.VX_ttsAudio = VX_ttsAudio;
+window.VX_playAudio = VX_playAudio;
+
+console.log("✅ voicePipeline loaded (VX)", {
+  VX_transcribeAudio: typeof window.VX_transcribeAudio,
+  VX_chatReply: typeof window.VX_chatReply,
+  VX_ttsAudio: typeof window.VX_ttsAudio,
+  VX_playAudio: typeof window.VX_playAudio
+});
 
 
 
