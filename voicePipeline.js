@@ -28,6 +28,18 @@ window.transcribeAudio = transcribeAudio;
 window.chatReply = chatReply;
 window.ttsAudio = ttsAudio;
 window.playAudio = playAudio;
+// --- Exporta funciones al scope global (blindaje total) ---
+window.transcribeAudio = transcribeAudio;
+window.chatReply = chatReply;
+window.ttsAudio = ttsAudio;
+window.playAudio = playAudio;
+
+console.log("✅ voicePipeline loaded:", {
+  transcribeAudio: typeof window.transcribeAudio,
+  chatReply: typeof window.chatReply,
+  ttsAudio: typeof window.ttsAudio,
+  playAudio: typeof window.playAudio
+});
 
 }
 
