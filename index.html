@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>ARGUS Avatar Beta (Call Mode)</title>
+  <title>ARGUS Avatar Beta (Call Mode PRO)</title>
   <link rel="icon" href="data:,">
 
   <style>
@@ -34,7 +34,7 @@
     }
     button:hover{box-shadow:0 0 0 6px var(--ring), 0 10px 30px rgba(0,0,0,.22);}
     button:disabled{opacity:.55;cursor:not-allowed}
-    .btnRec{min-width:360px;display:flex;align-items:center;gap:10px}
+    .btnRec{min-width:370px;display:flex;align-items:center;gap:10px}
     .dot{width:12px;height:12px;border-radius:50%;background:#2ee59d;box-shadow:0 0 0 8px rgba(46,229,157,.15)}
     .dot.off{background:rgba(255,255,255,.28);box-shadow:none}
     .dot.red{background:#ff5a7a; box-shadow:0 0 0 8px rgba(255,90,122,.18)}
@@ -56,8 +56,8 @@
     <div class="panel">
       <div class="top">
         <div>
-          <h1>📞 Avatar Beta (Modo Conversación Continua)</h1>
-          <div class="sub">Start = entra en modo llamada. Hablas, la IA responde y vuelve a escucharte sola. Stop = corta todo.</div>
+          <h1>📞 Avatar Beta (Call Mode PRO)</h1>
+          <div class="sub">Start = entra en modo llamada. Hablas, la IA responde y vuelve a escucharte sola. Stop = corta todo. (Keep-Alive activado).</div>
         </div>
         <div class="pill">STT → CHAT → TTS → LOOP</div>
       </div>
@@ -115,8 +115,8 @@
   </div>
 
   <!-- pipeline primero, recorder después -->
-  <script src="./voicePipeline.js?v=20"></script>
-  <script src="./voiceRecorder.js?v=20"></script>
+  <script src="./voicePipeline.js?v=30"></script>
+  <script src="./voiceRecorder.js?v=30"></script>
 
   <script>
     const $ = (id)=>document.getElementById(id);
@@ -204,10 +204,10 @@
     $("btnClear").onclick = ()=>{ logEl.textContent=""; setState("idle",""); };
 
     // =========================================================
-    // CALL MODE (Conversación continua)
-    // - Botón inicia loop
+    // CALL MODE PRO (Conversación continua + KeepAlive)
+    // - Start: activa keep-alive y entra al loop
     // - Cada turno: escucha autostop -> responde -> vuelve a escuchar
-    // - Botón mientras escucha: fuerza stop y corta llamada
+    // - Stop: apaga keep-alive + corta loop + fuerza stop si está escuchando
     // =========================================================
     let callActive = false;
     let callLoopBusy = false;
@@ -222,7 +222,6 @@
 
       try{
         while(callActive){
-          // 1) Ejecuta un turno (autostop + STT + Chat + TTS)
           await window.VX_startAutoTalk({
             mode: modeSel.value,
             onLog: addLog,
@@ -236,20 +235,19 @@
             }
           });
 
-          // 2) Si el usuario colgó en medio, salimos
           if(!callActive) break;
 
-          // 3) Pequeña pausa entre turnos para que el navegador “respire”
-          await new Promise(r=>setTimeout(r, 120));
+          // Pausa mínima entre turnos para estabilidad
+          await new Promise(r=>setTimeout(r, 150));
 
-          // 4) Asegura que el avatar siga reproduciendo (por si el navegador lo pausó)
+          // Mantén vivo el video del avatar
           try{ await vid.play(); }catch(e){}
         }
-      } catch(e){
+      }catch(e){
         console.error(e);
         addLog("SYS: ERROR LOOP: " + (e?.message || String(e)));
         setState("error","Revisa consola");
-      } finally{
+      }finally{
         callLoopBusy = false;
         if(!callActive){
           setState("idle","Llamada detenida");
@@ -261,18 +259,23 @@
     function startCall(){
       callActive = true;
       setCallUI(true);
-      setState("listening","Habla… (silencio = stop). Click para colgar.");
       addLog("SYS: 📞 Llamada iniciada.");
+      setState("listening","Habla… (silencio = stop). Click para colgar.");
+
+      // ✅ KeepAlive ON (clave para que no muera el 2do turno)
+      window.VX_setCallKeepAlive?.(true);
+
       callLoop();
     }
 
     function stopCall(){
       callActive = false;
 
-      // Si justo está escuchando, forzamos stop inmediato
-      try{
-        if(isListening()) window.VX_forceStop?.();
-      }catch(e){}
+      // Forzar stop si justo está escuchando
+      try{ if(isListening()) window.VX_forceStop?.(); }catch(e){}
+
+      // ✅ KeepAlive OFF
+      window.VX_setCallKeepAlive?.(false);
 
       setCallUI(false);
       addLog("SYS: 📴 Llamada detenida.");
