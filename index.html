@@ -282,10 +282,40 @@
       setState("idle","Llamada detenida");
     }
 
-    btnCall.onclick = ()=>{
-      if(!callActive) startCall();
-      else stopCall();
-    };
+    btnCall.onclick = async ()=>{
+  if(!callActive){
+    callActive = true;
+    setCallUI(true);
+    addLog("SYS: 📞 Llamada iniciada.");
+    setState("listening","Habla… (silencio = stop). Click para colgar.");
+
+    // IMPORTANTE: no uses callLoop ni VX_startAutoTalk aquí.
+    await window.VX_callStart({
+      mode: modeSel.value,
+      onLog: addLog,
+      onState: (s)=>{
+        const ss=(s||"").toLowerCase();
+        if(ss==="listening") setState("listening","Habla… (silencio = stop).");
+        else if(ss==="thinking") setState("thinking","Procesando…");
+        else if(ss==="idle") setState("idle","Listo para el siguiente turno…");
+        else if(ss==="error") setState("error","Revisa consola");
+        else setState(s,"");
+      }
+    });
+
+    // Si sales de VX_callStart por error o stop, sincroniza UI
+    callActive = false;
+    setCallUI(false);
+
+  } else {
+    callActive = false;
+    window.VX_callHardStop?.(); // corta todo de verdad
+    setCallUI(false);
+    addLog("SYS: 📴 Llamada detenida.");
+    setState("idle","Llamada detenida");
+  }
+};
+
 
     // Init
     (async ()=>{
