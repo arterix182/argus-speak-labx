@@ -1,9 +1,6 @@
-// netlify/functions/chat.js
 exports.handler = async (event) => {
   try {
-    if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: "Method Not Allowed" };
-    }
+    if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) return { statusCode: 500, body: JSON.stringify({ error: "Missing OPENAI_API_KEY" }) };
@@ -17,7 +14,7 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "Eres un coach de inglés. Responde corto y útil." },
+          { role: "system", content: "Eres un coach de inglés. Responde breve. Corrige 1 error máximo y da 1 ejemplo." },
           { role: "user", content: userText }
         ],
         temperature: 0.6
@@ -28,13 +25,10 @@ exports.handler = async (event) => {
     if (!r.ok) return { statusCode: 500, body: JSON.stringify({ error: data }) };
 
     const reply = data.choices?.[0]?.message?.content?.trim() || "";
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reply })
-    };
+    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reply }) };
   } catch (e) {
     return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
   }
 };
+
 
