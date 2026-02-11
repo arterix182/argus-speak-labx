@@ -1,6 +1,6 @@
-// voiceRecorder.js (COMPLETO - AutoStop PRO v2)
-// Fix: segundo intento sin voz / barra muerta por AudioContext suspendido y nodos colgados.
-// Requiere voicePipeline.js antes: VX_transcribeAudio, VX_chatReply, VX_ttsAudio, VX_playAudio
+// voiceRecorder.js (COMPLETO - AutoStop PRO v3 + Call KeepAlive)
+// Fix: en llamada el 2do turno se moría por AudioContext suspendido.
+// Requiere voicePipeline.js: VX_transcribeAudio, VX_chatReply, VX_ttsAudio, VX_playAudio
 
 let VX_deviceId = localStorage.getItem("VX_MIC") || "";
 
@@ -13,10 +13,14 @@ let VX_srcNode = null;
 let VX_analyser = null;
 let VX_meterRAF = null;
 
+let VX_keepOsc = null;
+let VX_keepGain = null;
+let VX_callKeepAlive = false;
+
 let VX_state = "idle"; // idle | recording | processing
 let VX_stopRequested = false;
 
-// ===== Ajustes VAD (silencio) =====
+// ===== Ajustes VAD =====
 const VX_CFG = {
   chunkMs: 200,
   hardMaxMs: 12000,
@@ -27,8 +31,8 @@ const VX_CFG = {
   silenceHoldMs: 700
 };
 
-function VX_sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
-function VX_now(){ return performance.now(); }
+const sleep = (ms)=>new Promise(r=>setTimeout(r, ms));
+const now = ()=>performance.now();
 
 async function VX_getStream(){
   const constraints = { audio: VX_deviceId ? { deviceId: { exact: VX_deviceId } } : true };
@@ -48,7 +52,7 @@ function VX_setMic(id){
   localStorage.setItem("VX_MIC", VX_deviceId);
 }
 
-// ===== Audio / Meter =====
+// ===== AudioContext keep-alive =====
 function VX_ensureAudioCtx(){
   if(!VX_audioCtx) VX_audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return VX_audioCtx;
@@ -56,15 +60,48 @@ function VX_ensureAudioCtx(){
 
 async function VX_resumeAudioCtx(){
   const ctx = VX_ensureAudioCtx();
-  // IMPORTANT: en muchos navegadores se suspende después de parar tracks
-  if(ctx.state === "suspended") {
-    try { await ctx.resume(); } catch(e) {}
+  if(ctx.state === "suspended"){
+    try{ await ctx.resume(); }catch(e){}
   }
 }
 
+function VX_startKeepAlive(){
+  // Oscilador silencioso para que el AudioContext NO se suspenda en call mode
+  const ctx = VX_ensureAudioCtx();
+  if(VX_keepOsc) return;
+
+  VX_keepGain = ctx.createGain();
+  VX_keepGain.gain.value = 0.00001; // prácticamente silencio
+  VX_keepGain.connect(ctx.destination);
+
+  VX_keepOsc = ctx.createOscillator();
+  VX_keepOsc.frequency.value = 20; // inaudible
+  VX_keepOsc.connect(VX_keepGain);
+
+  try{ VX_keepOsc.start(); }catch(e){}
+}
+
+function VX_stopKeepAlive(){
+  try{ VX_keepOsc?.stop(); }catch(e){}
+  try{ VX_keepOsc?.disconnect(); }catch(e){}
+  try{ VX_keepGain?.disconnect(); }catch(e){}
+  VX_keepOsc = null;
+  VX_keepGain = null;
+}
+
+function VX_setCallKeepAlive(on){
+  VX_callKeepAlive = !!on;
+  if(VX_callKeepAlive){
+    VX_resumeAudioCtx().then(()=>VX_startKeepAlive());
+  }else{
+    VX_stopKeepAlive();
+  }
+}
+
+// ===== Nodes =====
 function VX_disconnectNodes(){
-  try { VX_srcNode?.disconnect(); } catch(e) {}
-  try { VX_analyser?.disconnect(); } catch(e) {}
+  try{ VX_srcNode?.disconnect(); }catch(e){}
+  try{ VX_analyser?.disconnect(); }catch(e){}
   VX_srcNode = null;
   VX_analyser = null;
 }
@@ -103,11 +140,11 @@ function VX_startMeterLoop(){
 function VX_stopMeterLoop(){
   if(VX_meterRAF) cancelAnimationFrame(VX_meterRAF);
   VX_meterRAF = null;
-  if(typeof window.VX_onMeter==="function") window.VX_onMeter(0); // reset barra
+  if(typeof window.VX_onMeter==="function") window.VX_onMeter(0);
 }
 
 // ===== Cleanup =====
-function VX_cleanupAll(){
+function VX_cleanupTurn(){
   try{
     VX_stopMeterLoop();
     VX_disconnectNodes();
@@ -121,52 +158,45 @@ function VX_cleanupAll(){
   VX_stopRequested = false;
 }
 
+// ===== Recorder stop safe =====
 async function VX_safeStopRecorder(){
   if(!VX_rec) return null;
   const rec = VX_rec;
-
   if(rec.state !== "recording") return null;
 
   const blob = await new Promise((resolve)=>{
     let done=false;
-    const kill = setTimeout(()=>{
-      if(done) return;
-      done=true;
-      resolve(null);
-    }, 1500);
+    const kill = setTimeout(()=>{ if(!done){ done=true; resolve(null);} }, 1500);
 
     rec.onstop = ()=>{
       if(done) return;
       done=true;
       clearTimeout(kill);
-      try{
-        resolve(new Blob(VX_chunks, { type:"audio/webm" }));
-      }catch(e){
-        resolve(null);
-      }
+      try{ resolve(new Blob(VX_chunks, { type:"audio/webm" })); }
+      catch(e){ resolve(null); }
     };
 
-    try{ rec.stop(); } catch(e){ clearTimeout(kill); resolve(null); }
+    try{ rec.stop(); }catch(e){ clearTimeout(kill); resolve(null); }
   });
 
   return blob;
 }
 
-// ===== Core: start/stop recording =====
+// ===== Start/Stop internal =====
 async function VX_startRecordingInternal(){
   if(VX_state !== "idle") return;
   VX_state = "recording";
   VX_stopRequested = false;
   VX_chunks = [];
 
-  // Reanuda AudioContext (CLAVE para que el RMS no se quede en 0 en el segundo intento)
   await VX_resumeAudioCtx();
+  if(VX_callKeepAlive) VX_startKeepAlive();
 
   VX_stream = await VX_getStream();
   VX_startAnalyser(VX_stream);
   VX_startMeterLoop();
 
-  VX_rec = new MediaRecorder(VX_stream, { mimeType: "audio/webm" });
+  VX_rec = new MediaRecorder(VX_stream, { mimeType:"audio/webm" });
   VX_rec.ondataavailable = (ev)=>{ if(ev.data && ev.data.size) VX_chunks.push(ev.data); };
   VX_rec.start(VX_CFG.chunkMs);
 }
@@ -176,13 +206,10 @@ async function VX_stopRecordingInternal(){
   VX_state = "processing";
 
   const blob = await VX_safeStopRecorder();
-  // Limpieza de stream y nodos (pero NO destruimos AudioContext)
   try{
     VX_stopMeterLoop();
     VX_disconnectNodes();
-    if(VX_stream){
-      VX_stream.getTracks().forEach(t=>t.stop());
-    }
+    if(VX_stream) VX_stream.getTracks().forEach(t=>t.stop());
   }catch(e){}
   VX_stream = null;
   VX_rec = null;
@@ -190,74 +217,62 @@ async function VX_stopRecordingInternal(){
   return blob;
 }
 
-// ===== VAD Auto-stop =====
+// ===== AutoStop =====
 async function VX_recordWithAutoStop({ onLog=()=>{}, onState=()=>{} } = {}){
   onState("listening");
   onLog("SYS: Escuchando… (auto-stop por silencio)");
-
   await VX_startRecordingInternal();
 
-  // Calibración ruido base
-  const t0 = VX_now();
-  let noise = 0, n=0;
-
-  while(VX_now()-t0 < VX_CFG.calibrateMs){
-    await VX_sleep(50);
+  const t0 = now();
+  let noise=0, n=0;
+  while(now()-t0 < VX_CFG.calibrateMs){
+    await sleep(50);
     noise += VX_getRms(); n++;
   }
   noise = n ? noise/n : 0.008;
 
   const startThr = noise + VX_CFG.startMargin;
-  const silenceThr = noise + VX_CFG.silenceMargin;
 
-  onLog(`SYS: Calibrado. ruido=${noise.toFixed(3)} start=${startThr.toFixed(3)} silence=${silenceThr.toFixed(3)}`);
+  onLog(`SYS: Calibrado. ruido=${noise.toFixed(3)} start=${startThr.toFixed(3)}`);
 
-  let hadSpeech = false;
-  let speechMs = 0;
-  let silenceStart = null;
-  const hardStart = VX_now();
+  let hadSpeech=false;
+  let speechMs=0;
+  let silenceStart=null;
+  const hardStart = now();
 
   while(true){
     if(VX_stopRequested) break;
-
-    if(VX_now()-hardStart > VX_CFG.hardMaxMs){
-      onLog("SYS: Auto-stop por límite de tiempo.");
-      break;
-    }
+    if(now()-hardStart > VX_CFG.hardMaxMs){ onLog("SYS: Auto-stop por límite."); break; }
 
     const rms = VX_getRms();
 
     if(rms > startThr){
-      hadSpeech = true;
+      hadSpeech=true;
       speechMs += 50;
-      silenceStart = null;
-    }else{
-      if(hadSpeech){
-        if(silenceStart == null) silenceStart = VX_now();
-        const silMs = VX_now() - silenceStart;
-        if(speechMs >= VX_CFG.minSpeechMs && silMs >= VX_CFG.silenceHoldMs){
-          onLog("SYS: Auto-stop por silencio.");
-          break;
-        }
+      silenceStart=null;
+    }else if(hadSpeech){
+      if(silenceStart == null) silenceStart = now();
+      const silMs = now()-silenceStart;
+      if(speechMs >= VX_CFG.minSpeechMs && silMs >= VX_CFG.silenceHoldMs){
+        onLog("SYS: Auto-stop por silencio.");
+        break;
       }
     }
 
-    await VX_sleep(50);
+    await sleep(50);
   }
 
   const blob = await VX_stopRecordingInternal();
 
-  // Validación: si no hubo voz real, regresamos null (sin romper siguiente intento)
   if(!blob || !hadSpeech || speechMs < VX_CFG.minSpeechMs){
     onState("idle");
-    onLog("SYS: No detecté voz clara. Habla 1–2s y luego silencio. Intenta otra vez.");
+    onLog("SYS: No detecté voz clara. Intenta de nuevo.");
     return null;
   }
 
   return blob;
 }
 
-// ===== Prompt =====
 function VX_buildPrompt(mode, userText){
   const base = `Eres un coach de inglés. Responde en español, corrige la frase del usuario y da 2 ejemplos en inglés.`;
   const styles = {
@@ -268,31 +283,23 @@ function VX_buildPrompt(mode, userText){
   return `${base}\nEstilo: ${styles[mode] || styles.coach}\nUsuario dijo: "${userText}"`;
 }
 
-// ===== Turno completo =====
+// ===== Turno =====
 async function VX_runTurn({ mode="coach", onLog=()=>{}, onState=()=>{} } = {}){
   if(VX_state !== "idle") return;
 
   try{
     const blob = await VX_recordWithAutoStop({ onLog, onState });
-    if(!blob){
-      // IMPORTANTE: dejar listo para el siguiente intento
-      VX_state = "idle";
-      VX_stopRequested = false;
-      return;
-    }
+    if(!blob){ VX_state="idle"; return; }
 
     onState("thinking");
     onLog("SYS: STT…");
     const text = await window.VX_transcribeAudio(blob);
-
-    const clean = (text || "").trim();
+    const clean = (text||"").trim();
     if(!clean){
-      onLog("SYS: No transcribí algo usable. Intenta de nuevo.");
-      VX_state = "idle";
+      onLog("SYS: No transcribí algo usable.");
       onState("idle");
       return;
     }
-
     onLog("YOU: " + clean);
 
     onLog("SYS: CHAT…");
@@ -301,7 +308,7 @@ async function VX_runTurn({ mode="coach", onLog=()=>{}, onState=()=>{} } = {}){
 
     onLog("SYS: TTS…");
     const audio = await window.VX_ttsAudio(reply);
-    await window.VX_playAudio(audio);
+    await window.VX_playAudio(audio); // ahora espera a que termine
 
     onState("idle");
   } catch(e){
@@ -309,34 +316,33 @@ async function VX_runTurn({ mode="coach", onLog=()=>{}, onState=()=>{} } = {}){
     onState("error");
     onLog("SYS: ERROR: " + (e?.message || String(e)));
   } finally{
-    // 🔥 Clave: SIEMPRE dejamos todo listo para el siguiente turno
-    VX_cleanupAll();
+    VX_cleanupTurn();
     VX_state = "idle";
     VX_stopRequested = false;
   }
 }
 
-// ===== API para UI =====
+// ===== API =====
 async function VX_startAutoTalk({ mode="coach", onLog=()=>{}, onState=()=>{} } = {}){
-  await VX_resumeAudioCtx();     // garantiza contexto activo en cada click
+  await VX_resumeAudioCtx();
+  if(VX_callKeepAlive) VX_startKeepAlive();
   await VX_runTurn({ mode, onLog, onState });
 }
 
 function VX_forceStop(){
-  if(VX_state === "recording"){
-    VX_stopRequested = true;
-  }
+  if(VX_state === "recording") VX_stopRequested = true;
 }
 
-// Export
 window.VX_listMics = VX_listMics;
 window.VX_setMic = VX_setMic;
 window.VX_startAutoTalk = VX_startAutoTalk;
 window.VX_forceStop = VX_forceStop;
+window.VX_setCallKeepAlive = VX_setCallKeepAlive;
 
-console.log("✅ voiceRecorder loaded (AutoStop PRO v2)", {
+console.log("✅ voiceRecorder loaded (v3)", {
   VX_startAutoTalk: typeof window.VX_startAutoTalk,
-  VX_forceStop: typeof window.VX_forceStop
+  VX_forceStop: typeof window.VX_forceStop,
+  VX_setCallKeepAlive: typeof window.VX_setCallKeepAlive
 });
 
 
