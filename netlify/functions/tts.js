@@ -1,37 +1,38 @@
-exports.handler = async (event) => {
+export default async (req) => {
   try {
-    if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+    if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+
+    const { text } = await req.json();
+    if (!text) return new Response(JSON.stringify({ error: "Missing text" }), { status: 400 });
 
     const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return { statusCode: 500, body: JSON.stringify({ error: "Missing OPENAI_API_KEY" }) };
-
-    const { text } = JSON.parse(event.body || "{}");
-    if (!text) return { statusCode: 400, body: JSON.stringify({ error: "Missing text" }) };
 
     const r = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
       body: JSON.stringify({
         model: "gpt-4o-mini-tts",
         voice: "alloy",
         input: text
-      })
+      }),
     });
 
     if (!r.ok) {
       const err = await r.text();
-      return { statusCode: 500, body: JSON.stringify({ error: err }) };
+      return new Response(JSON.stringify({ error: err }), { status: 500 });
     }
 
-    const buf = await r.arrayBuffer();
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "audio/mpeg" },
-      body: Buffer.from(buf).toString("base64"),
-      isBase64Encoded: true
-    };
+    // Regresar audio directamente
+    const audioBuf = await r.arrayBuffer();
+    return new Response(audioBuf, {
+      headers: { "Content-Type": "audio/mpeg" }
+    });
   } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
+    return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
   }
 };
+
 
