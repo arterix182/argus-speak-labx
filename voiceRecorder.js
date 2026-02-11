@@ -1,4 +1,4 @@
-// voiceRecorder.js — con selector de mic + mic test + VU + VAD + pipeline
+// voiceRecorder.js — toggle record + VU + auto-stop silence + mic test
 
 (() => {
   let isRecording = false;
@@ -12,7 +12,7 @@
   let srcNode = null;
   let rafId = null;
 
-  // VAD / Auto-stop
+  // Auto-stop por silencio
   let calibrated = false;
   let noiseFloor = 0.01;
   let startThresh = 0.02;
@@ -96,7 +96,7 @@
         if (silenceMs >= 700) {
           if (isRecording) {
             LOG("SYS", "Silencio detectado. Deteniendo…");
-            stopRecording(true);
+            stopRecording();
           }
         }
       }
@@ -126,7 +126,7 @@
       if (!t) { LOG("SYS", "No audio track."); return; }
       const st = t.getSettings?.() || {};
       LOG("SYS", `Track: enabled=${t.enabled} muted=${t.muted} readyState=${t.readyState}`);
-      LOG("SYS", `Settings: sampleRate=${st.sampleRate || "?"} channelCount=${st.channelCount || "?"} deviceId=${(st.deviceId||"").slice(0,6)}...`);
+      LOG("SYS", `Settings: sampleRate=${st.sampleRate || "?"} channelCount=${st.channelCount || "?"}`);
     } catch {}
   }
 
@@ -312,13 +312,15 @@
     }
   }
 
+  // Toggle (botón)
   window.VX_toggleTalk = async () => {
     if (!isRecording) await startRecording();
     else stopRecording();
   };
 
-  console.log("✅ voiceRecorder loaded (mic selector + mic test + VU/VAD)");
+  console.log("✅ voiceRecorder loaded");
 })();
+
 
 
 
