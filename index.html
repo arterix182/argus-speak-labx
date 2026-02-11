@@ -24,7 +24,32 @@
 </script>
 
 </head>
+<script src="./voicePipeline.js?v=1"></script>
+<script src="./voiceRecorder.js?v=1"></script>
+
 <body>
+  <div style="padding:10px;">
+  <button id="btnHold" style="padding:12px 16px;font-size:16px;">
+    Mantén presionado para hablar
+  </button>
+  <div id="voiceStatus" style="margin-top:8px;font-family:Arial;"></div>
+  <pre id="voiceLog" style="white-space:pre-wrap;"></pre>
+</div>
+
+<script>
+  const statusEl = document.getElementById("voiceStatus");
+  const logEl = document.getElementById("voiceLog");
+
+  window.__voiceState = (s) => statusEl.textContent = "Estado: " + s;
+  window.__voiceLog = (who, text) => logEl.textContent = (logEl.textContent + `\n${who}: ${text}`).trim();
+
+  const btn = document.getElementById("btnHold");
+  btn.addEventListener("mousedown", () => startRec());
+  btn.addEventListener("mouseup", () => runVoiceTurn());
+  btn.addEventListener("touchstart", (e) => { e.preventDefault(); startRec(); }, { passive:false });
+  btn.addEventListener("touchend", (e) => { e.preventDefault(); runVoiceTurn(); }, { passive:false });
+</script>
+
   <div class="bg"></div>
   <div class="noise"></div>
 
@@ -335,7 +360,5 @@
     })();
   </script>
 <script src="./app.js"></script>
-<script src="./voicePipeline.js"></script>
-<script src="./voiceRecorder.js"></script>  
 </body>
 </html>
