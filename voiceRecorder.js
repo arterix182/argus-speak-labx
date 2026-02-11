@@ -1,5 +1,4 @@
-// voiceRecorder.js (COMPLETO) — Tap-to-Talk + Auto-stop por silencio (VAD-lite)
-// Requiere: window.VX_transcribeAudio, window.VX_chatReply, window.VX_ttsAudio, window.VX_playAudio
+// voiceRecorder.js (COMPLETO) — Tap-to-Talk + Auto-stop por silencio (VAD-lite con auto-calibración)
 
 (() => {
   if (window.__VX_voiceRecorderLoaded) {
@@ -8,19 +7,24 @@
   }
   window.__VX_voiceRecorderLoaded = true;
 
-  // ======= Ajustes finos (chido vs sensible) =======
-  const MIN_RECORD_MS = 900;           // mínimo para evitar clips ridículos
-  const SILENCE_STOP_MS = 700;         // silencio continuo para auto-stop
-  const START_SPEECH_THRESHOLD = 0.03; // RMS para considerar "ya habló"
-  const SILENCE_THRESHOLD = 0.018;     // RMS debajo de esto = silencio
-  const VU_SMOOTH = 0.15;              // suavizado del medidor
+  // ======= Ajustes base =======
+  const MIN_RECORD_MS = 900;          // mínimo para no mandar clips mini
+  const SILENCE_STOP_MS = 700;        // silencio continuo para auto-stop
+  const CALIBRATE_MS = 650;           // tiempo para medir ruido base al inicio
+  const MAX_RECORD_MS = 10000;        // failsafe: corta sí o sí a los 10s
+  const VU_SMOOTH = 0.18;
+
+  // Multiplicadores relativos al ruido base (auto-calibración)
+  // Si tu entorno es ruidoso, estos valores siguen funcionando.
+  const START_MULT = 2.2;  // "ya habló" si RMS supera ruido*2.2
+  const SILENCE_MULT = 1.35; // "silencio" si RMS baja a ruido*1.35
 
   // ======= Estado =======
   let mediaRecorder = null;
   let chunks = [];
   let startedAt = 0;
   let isRecording = false;
-  let isBusy = false; // evita doble turno simultáneo
+  let isBusy = false;
 
   // WebAudio para VAD
   let audioCtx = null;
@@ -33,30 +37,29 @@
   let silenceSince = null;
   let vu = 0;
 
+  // Auto-calibración
+  let noiseFloor = 0.012; // default
+  let startThreshold = 0.03;
+  let silenceThreshold = 0.018;
+
   function setState(s) {
     window.__voiceState?.(s);
     console.log("STATE:", s);
   }
-
   function log(who, msg) {
     window.__voiceLog?.(who, msg);
     console.log(`${who}:`, msg);
   }
-
   function setVU(v) {
-    // v 0..1
     window.__voiceVU?.(v);
   }
 
   function cleanupMic() {
-    try {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = null;
-    } catch {}
+    try { if (rafId) cancelAnimationFrame(rafId); } catch {}
+    rafId = null;
 
     try { if (sourceNode) sourceNode.disconnect(); } catch {}
     try { if (analyser) analyser.disconnect(); } catch {}
-
     sourceNode = null;
     analyser = null;
 
@@ -64,9 +67,7 @@
     audioCtx = null;
 
     try {
-      if (streamRef) {
-        streamRef.getTracks().forEach(t => t.stop());
-      }
+      if (streamRef) streamRef.getTracks().forEach(t => t.stop());
     } catch {}
     streamRef = null;
 
@@ -81,35 +82,63 @@
 
     let sum = 0;
     for (let i = 0; i < buf.length; i++) {
-      const x = (buf[i] - 128) / 128; // -1..1
+      const x = (buf[i] - 128) / 128;
       sum += x * x;
     }
-    return Math.sqrt(sum / buf.length); // 0..~1
+    return Math.sqrt(sum / buf.length);
+  }
+
+  async function calibrateNoiseFloor() {
+    const t0 = Date.now();
+    let samples = [];
+    while (Date.now() - t0 < CALIBRATE_MS) {
+      samples.push(calcRMS());
+      await new Promise(r => setTimeout(r, 30));
+    }
+    // usa mediana para que un golpe de ruido no truene
+    samples.sort((a,b)=>a-b);
+    const median = samples[Math.floor(samples.length * 0.5)] || 0.012;
+
+    noiseFloor = Math.max(0.006, Math.min(0.06, median)); // clamp razonable
+
+    startThreshold = Math.min(0.18, noiseFloor * START_MULT);
+    silenceThreshold = Math.min(0.12, noiseFloor * SILENCE_MULT);
+
+    console.log("🎚️ Calibrated", { noiseFloor, startThreshold, silenceThreshold });
+    log("SYS", `Calibrado. ruido=${noiseFloor.toFixed(3)} start=${startThreshold.toFixed(3)} silence=${silenceThreshold.toFixed(3)}`);
   }
 
   function tickVAD() {
     const rms = calcRMS();
 
-    // VU meter suavizado
+    // VU visible con ganancia
     vu = vu + (rms - vu) * VU_SMOOTH;
-    setVU(Math.min(1, Math.max(0, vu * 4))); // *4 para hacerlo visible
+    setVU(Math.min(1, Math.max(0, vu * 4)));
+
+    const now = Date.now();
+    const recordedMs = now - startedAt;
+
+    // Failsafe: si se pasa de 10s, cortamos
+    if (recordedMs >= MAX_RECORD_MS) {
+      VX_stopRec().catch(console.warn);
+      return;
+    }
 
     // Detecta inicio de habla
-    if (!speechStarted && rms >= START_SPEECH_THRESHOLD) {
+    if (!speechStarted && rms >= startThreshold) {
       speechStarted = true;
       silenceSince = null;
     }
 
-    // Auto-stop por silencio una vez que ya habló
+    // Auto-stop por silencio después de hablar
     if (speechStarted) {
-      if (rms < SILENCE_THRESHOLD) {
-        if (silenceSince == null) silenceSince = Date.now();
-        const silentMs = Date.now() - silenceSince;
-        const recordedMs = Date.now() - startedAt;
+      if (rms < silenceThreshold) {
+        if (silenceSince == null) silenceSince = now;
+        const silentMs = now - silenceSince;
+
         if (recordedMs >= MIN_RECORD_MS && silentMs >= SILENCE_STOP_MS) {
-          // stop automático
           VX_stopRec().catch(console.warn);
-          return; // no seguir tick
+          return;
         }
       } else {
         silenceSince = null;
@@ -127,16 +156,19 @@
     speechStarted = false;
     silenceSince = null;
 
-    // Permisos mic (debe ser por gesto del usuario)
-    streamRef = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
 
-    // MediaRecorder
     mediaRecorder = new MediaRecorder(streamRef, { mimeType: "audio/webm" });
     mediaRecorder.ondataavailable = (e) => {
       if (e.data && e.data.size) chunks.push(e.data);
     };
 
-    // WebAudio analyser para VAD
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     sourceNode = audioCtx.createMediaStreamSource(streamRef);
     analyser = audioCtx.createAnalyser();
@@ -147,7 +179,9 @@
     isRecording = true;
 
     setState("listening");
-    log("SYS", "Escuchando... (se detiene solo con silencio)");
+    log("SYS", "Escuchando... (auto-stop por silencio)");
+    // calibración breve al arrancar
+    await calibrateNoiseFloor();
     tickVAD();
   }
 
@@ -162,9 +196,8 @@
         resolve(blob);
       };
 
-      try {
-        mediaRecorder.stop();
-      } catch (e) {
+      try { mediaRecorder.stop(); }
+      catch (e) {
         isRecording = false;
         cleanupMic();
         reject(e);
@@ -210,7 +243,6 @@
         const buf = await window.VX_ttsAudio(reply);
         await window.VX_playAudio(buf);
       } catch (ttsErr) {
-        // Si TTS falla, NO tiramos el flujo: seguimos con texto
         console.warn("TTS error (ignored):", ttsErr);
         log("SYS", "TTS no disponible (ok).");
       }
@@ -225,18 +257,15 @@
     }
   }
 
-  // Toggle: si está grabando -> stop y procesa; si no -> empieza
+  // Toggle: click = start; si ya graba, click = stop manual
   async function VX_toggleTalk() {
     if (isRecording) {
       try {
         const blob = await VX_stopRec();
         await VX_runVoiceTurn(blob);
-      } catch (e) {
-        console.warn(e);
-      }
+      } catch (e) { console.warn(e); }
       return;
     }
-
     try {
       await VX_startRec();
     } catch (e) {
@@ -250,17 +279,7 @@
   window.VX_toggleTalk = VX_toggleTalk;
   window.VX_isRecording = () => isRecording;
 
-  // (Opcional) compat: si algún HTML viejo llama estas:
-  window.VX_startRec = VX_startRec;
-  window.VX_runVoiceTurn = async () => {
-    // si alguien llama "run" sin parar, paramos y procesamos
-    if (isRecording) {
-      const blob = await VX_stopRec();
-      await VX_runVoiceTurn(blob);
-    }
-  };
-
-  console.log("✅ voiceRecorder loaded (VX) — Tap-to-Talk + VAD-lite");
+  console.log("✅ voiceRecorder loaded (VX) — VAD-lite auto-calibrado");
 })();
 
 
