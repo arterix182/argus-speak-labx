@@ -1,32 +1,33 @@
-const FormData = require("form-data");
-
-exports.handler = async (event) => {
+export default async (req) => {
   try {
-    if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+    if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+
+    const form = await req.formData();
+    const file = form.get("file");
+    if (!file) return new Response(JSON.stringify({ error: "No audio file" }), { status: 400 });
 
     const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return { statusCode: 500, body: JSON.stringify({ error: "Missing OPENAI_API_KEY" }) };
+    if (!apiKey) return new Response(JSON.stringify({ error: "Missing OPENAI_API_KEY" }), { status: 500 });
 
-    const { audioBase64, mimeType } = JSON.parse(event.body || "{}");
-    if (!audioBase64) return { statusCode: 400, body: JSON.stringify({ error: "Missing audioBase64" }) };
-
-    const buffer = Buffer.from(audioBase64, "base64");
+    // Reenvío a OpenAI (STT)
     const fd = new FormData();
-    fd.append("file", buffer, { filename: "audio.webm", contentType: mimeType || "audio/webm" });
+    fd.append("file", file, "audio.webm");
     fd.append("model", "gpt-4o-mini-transcribe");
 
     const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, ...fd.getHeaders() },
+      headers: { Authorization: `Bearer ${apiKey}` },
       body: fd,
     });
 
     const data = await r.json();
-    if (!r.ok) return { statusCode: 500, body: JSON.stringify({ error: data }) };
+    if (!r.ok) return new Response(JSON.stringify({ error: data }), { status: 500 });
 
-    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: data.text || "" }) };
+    return new Response(JSON.stringify({ text: data.text || "" }), {
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
+    return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
   }
 };
 
