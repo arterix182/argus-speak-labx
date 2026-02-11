@@ -1,81 +1,95 @@
-// voicePipeline.js (COMPLETO, VX_* para evitar choques)
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ARGUS SPEAK LAB-X — Avatar Beta</title>
+  <style>
+    body{font-family:Arial,system-ui,sans-serif;margin:0;padding:16px;background:#0b1220;color:#e8eefc}
+    .card{max-width:820px;margin:0 auto;background:#0f1b34;border:1px solid rgba(255,255,255,.08);
+      border-radius:16px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    button{padding:12px 16px;border-radius:12px;border:1px solid rgba(255,255,255,.14);
+      background:#15284f;color:#fff;font-size:16px;cursor:pointer}
+    button:active{transform:scale(.99)}
+    #voiceStatus{margin-top:10px;opacity:.9}
+    pre{white-space:pre-wrap;background:rgba(255,255,255,.06);padding:12px;border-radius:12px;min-height:150px}
+    .hint{opacity:.7;font-size:13px;margin-top:6px}
+    .pill{display:inline-block;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.08);font-size:12px}
+  </style>
+</head>
 
-async function VX_blobToBase64(blob) {
-  const ab = await blob.arrayBuffer();
-  const bytes = new Uint8Array(ab);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
+<body>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <h2 style="margin:0;">🎙️ Avatar Beta (Voz → IA → Voz)</h2>
+      <span class="pill" id="apiStatus">API: ...</span>
+    </div>
 
-async function VX_transcribeAudio(blob) {
-  const audioBase64 = await VX_blobToBase64(blob);
+    <div class="hint">
+      Mantén presionado para hablar. Si no detecta voz, habla 2–3s cerca del mic.
+    </div>
 
-  const r = await fetch("/api/stt", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      audioBase64,
-      mimeType: blob.type || "audio/webm",
-    }),
-  });
+    <div class="row" style="margin-top:12px;">
+      <button id="btnHold">Mantén presionado para hablar</button>
+      <button id="btnTestChat">Probar Chat (texto)</button>
+      <button id="btnClear">Limpiar</button>
+    </div>
 
-  let j;
-  try { j = await r.json(); } catch { j = { error: "Non-JSON response from /api/stt" }; }
-  if (!r.ok) throw new Error(JSON.stringify(j));
+    <div id="voiceStatus">Estado: idle</div>
 
-  return (j.text || "").trim();
-}
+    <h3 style="margin:14px 0 8px 0;">Log</h3>
+    <pre id="voiceLog"></pre>
+  </div>
 
-async function VX_chatReply(userText) {
-  const clean = (userText || "").trim();
-  if (!clean) throw new Error("Empty userText");
+  <!-- ORDEN CORRECTO + cache-bust -->
+  <script src="./voicePipeline.js?v=200"></script>
+  <script src="./voiceRecorder.js?v=200"></script>
 
-  const r = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userText: clean }),
-  });
+  <script>
+    const statusEl = document.getElementById("voiceStatus");
+    const logEl = document.getElementById("voiceLog");
+    const apiEl = document.getElementById("apiStatus");
 
-  let j;
-  try { j = await r.json(); } catch { j = { error: "Non-JSON response from /api/chat" }; }
-  if (!r.ok) throw new Error(JSON.stringify(j));
+    window.__voiceState = (s) => statusEl.textContent = "Estado: " + s;
+    window.__voiceLog = (who, text) => {
+      const line = `${who}: ${text}`;
+      logEl.textContent = (logEl.textContent + "\n" + line).trim();
+    };
 
-  return (j.reply || "").trim();
-}
+    document.getElementById("btnClear").addEventListener("click", () => {
+      logEl.textContent = "";
+      window.__voiceState("idle");
+    });
 
-async function VX_ttsAudio(text) {
-  const clean = (text || "").trim();
-  if (!clean) throw new Error("Empty text");
+    const btn = document.getElementById("btnHold");
+    btn.addEventListener("mousedown", () => window.VX_startRec());
+    btn.addEventListener("mouseup", () => window.VX_runVoiceTurn());
+    btn.addEventListener("touchstart", (e) => { e.preventDefault(); window.VX_startRec(); }, { passive:false });
+    btn.addEventListener("touchend", (e) => { e.preventDefault(); window.VX_runVoiceTurn(); }, { passive:false });
 
-  const r = await fetch("/api/tts", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: clean }),
-  });
+    document.getElementById("btnTestChat").addEventListener("click", async () => {
+      try {
+        const reply = await window.VX_chatReply("Hello! Correct my English: I no have time yesterday.");
+        window.__voiceLog("BOT", reply);
+      } catch (e) {
+        alert("Chat test failed: " + (e?.message || e));
+      }
+    });
 
-  if (!r.ok) throw new Error(await r.text());
-  return await r.arrayBuffer();
-}
+    // Mini check rápido
+    apiEl.textContent = "API: " + [
+      "STT " + (typeof window.VX_transcribeAudio),
+      "CHAT " + (typeof window.VX_chatReply),
+      "TTS " + (typeof window.VX_ttsAudio)
+    ].join(" | ");
 
-async function VX_playAudio(buf) {
-  const blob = new Blob([buf], { type: "audio/mpeg" });
-  const url = URL.createObjectURL(blob);
-  const a = new Audio(url);
-  await a.play();
-  a.onended = () => URL.revokeObjectURL(url);
-}
-
-// Exporta “blindado”
-window.VX_transcribeAudio = VX_transcribeAudio;
-window.VX_chatReply = VX_chatReply;
-window.VX_ttsAudio = VX_ttsAudio;
-window.VX_playAudio = VX_playAudio;
-
-console.log("✅ voicePipeline loaded (VX)", {
-  VX_transcribeAudio: typeof window.VX_transcribeAudio,
-  VX_chatReply: typeof window.VX_chatReply,
-  VX_ttsAudio: typeof window.VX_ttsAudio,
-  VX_playAudio: typeof window.VX_playAudio
-});
+    console.log("✅ index wired", {
+      VX_transcribeAudio: typeof window.VX_transcribeAudio,
+      VX_chatReply: typeof window.VX_chatReply,
+      VX_ttsAudio: typeof window.VX_ttsAudio
+    });
+  </script>
+</body>
+</html>
 
