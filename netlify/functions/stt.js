@@ -1,17 +1,26 @@
 // netlify/functions/stt.js
-export default async (req) => {
+exports.handler = async (event) => {
   try {
-    if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+    if (event.httpMethod !== "POST") {
+      return { statusCode: 405, body: "Method Not Allowed" };
+    }
 
     const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return new Response(JSON.stringify({ error: "Missing OPENAI_API_KEY" }), { status: 500 });
+    if (!apiKey) {
+      return { statusCode: 500, body: JSON.stringify({ error: "Missing OPENAI_API_KEY" }) };
+    }
 
-    const form = await req.formData();
-    const file = form.get("file");
-    if (!file) return new Response(JSON.stringify({ error: "No audio file" }), { status: 400 });
+    const { audioBase64, mimeType } = JSON.parse(event.body || "{}");
+    if (!audioBase64) {
+      return { statusCode: 400, body: JSON.stringify({ error: "Missing audioBase64" }) };
+    }
+
+    // Convierte base64 a Blob para reenviar como archivo
+    const buffer = Buffer.from(audioBase64, "base64");
+    const type = mimeType || "audio/webm";
 
     const fd = new FormData();
-    fd.append("file", file, "audio.webm");
+    fd.append("file", new Blob([buffer], { type }), "audio.webm");
     fd.append("model", "gpt-4o-mini-transcribe");
 
     const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -21,12 +30,17 @@ export default async (req) => {
     });
 
     const data = await r.json();
-    if (!r.ok) return new Response(JSON.stringify({ error: data }), { status: 500 });
+    if (!r.ok) {
+      return { statusCode: 500, body: JSON.stringify({ error: data }) };
+    }
 
-    return new Response(JSON.stringify({ text: data.text || "" }), {
+    return {
+      statusCode: 200,
       headers: { "Content-Type": "application/json" },
-    });
+      body: JSON.stringify({ text: data.text || "" }),
+    };
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+    return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
   }
 };
+
