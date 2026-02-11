@@ -1,4 +1,4 @@
-// netlify/functions/chat.js
+// netlify/functions/chat.js (COMPLETO)
 exports.handler = async (event) => {
   try {
     if (event.httpMethod !== "POST") {
@@ -10,7 +10,10 @@ exports.handler = async (event) => {
       return { statusCode: 500, body: JSON.stringify({ error: "Missing OPENAI_API_KEY" }) };
     }
 
-    const { userText } = JSON.parse(event.body || "{}");
+    let body = {};
+    try { body = JSON.parse(event.body || "{}"); } catch {}
+    const userText = (body.userText || "").trim();
+
     if (!userText) {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing userText" }) };
     }
@@ -24,11 +27,11 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "Eres un coach de inglés. Responde corto y útil." },
-          { role: "user", content: userText }
+          { role: "system", content: "Eres un coach de inglés. Responde breve. Corrige 1 error máximo y da 1 ejemplo." },
+          { role: "user", content: userText },
         ],
-        temperature: 0.6
-      })
+        temperature: 0.6,
+      }),
     });
 
     const data = await r.json();
@@ -40,12 +43,13 @@ exports.handler = async (event) => {
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reply })
+      body: JSON.stringify({ reply }),
     };
   } catch (e) {
     return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
   }
 };
+
 
 
 
