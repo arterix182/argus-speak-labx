@@ -1,4 +1,10 @@
-import formidable from "formidable";
+// NOTE:
+// En algunos runtimes/bundlers (Netlify + mezcla ESM/CJS), `import formidable from "formidable"`
+// termina como `import_formidable.default` y NO es una función.
+// Para evitar el error:
+//   (0, import_formidable.default) is not a function
+// usamos la API estable IncomingForm.
+import { IncomingForm } from "formidable";
 
 export const config = {
   api: { bodyParser: false },
@@ -13,7 +19,7 @@ export async function handler(event) {
 
     // A) multipart/form-data
     if (ct.includes("multipart/form-data")) {
-      const form = formidable({ multiples: false });
+      const form = new IncomingForm({ multiples: false });
       const { files } = await new Promise((resolve, reject) => {
         form.parse(toNodeReq(event), (err, fields, files) => {
           if (err) reject(err);
