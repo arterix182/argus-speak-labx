@@ -1,32 +1,51 @@
-// netlify/functions/tts.js
-export default async (req) => {
+export async function handler(event) {
   try {
-    if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) return json(500, { error: "Missing OPENAI_API_KEY" });
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return new Response(JSON.stringify({ error: "Missing OPENAI_API_KEY" }), { status: 500 });
+    const { text } = JSON.parse(event.body || "{}");
+    if (!text) return json(400, { error: "Missing text" });
 
-    const { text } = await req.json();
-    if (!text) return new Response(JSON.stringify({ error: "Missing text" }), { status: 400 });
-
-    const r = await fetch("https://api.openai.com/v1/audio/speech", {
+    // TTS (MP3)
+    const resp = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      headers: {
+        "Authorization": `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         model: "gpt-4o-mini-tts",
         voice: "alloy",
-        input: text
+        format: "mp3",
+        input: text,
       }),
     });
 
-    if (!r.ok) {
-      const err = await r.text();
-      return new Response(JSON.stringify({ error: err }), { status: 500 });
+    if (!resp.ok) {
+      const err = await resp.text();
+      return json(resp.status, { error: err });
     }
 
-    const audioBuf = await r.arrayBuffer();
-    return new Response(audioBuf, { headers: { "Content-Type": "audio/mpeg" } });
+    const arrayBuf = await resp.arrayBuffer();
+    return {
+      statusCode: 200,
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Cache-Control": "no-store",
+      },
+      body: Buffer.from(arrayBuf).toString("base64"),
+      isBase64Encoded: true,
+    };
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+    return json(500, { error: String(e?.message || e) });
   }
-};
+}
+
+function json(statusCode, obj) {
+  return {
+    statusCode,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(obj),
+  };
+}
+
