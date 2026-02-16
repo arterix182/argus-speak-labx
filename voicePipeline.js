@@ -1,4 +1,6 @@
 // js/voicePipeline.js (STT + CHAT + TTS; globals que espera voiceRecorder)
+// FIX: evita "await" en funciones no-async (algunos deploys terminan quitando async). 
+// Aquí el TTS NO usa await; usa Promises para que el archivo siempre cargue.
 (() => {
   "use strict";
 
@@ -19,7 +21,7 @@
   }
 
   // ---------------- STT (RAW body) ----------------
-  // Nota: enviamos el blob directo (no multipart) para evitar errores de "Missing file" en Netlify.
+  // Nota: evita multipart porque Netlify a veces "pierde" el file.
   window.VX_sttTranscribe = async function (blob, opts = {}) {
     if (!blob || !blob.size) throw new Error("Empty audio blob");
 
@@ -44,7 +46,7 @@
   };
 
   // ---------------- CHAT ----------------
-  // ✅ Backend espera userText
+  // ✅ Tu backend /api/chat está pidiendo "userText"
   window.VX_chatReply = async function (userText, ctx = {}) {
     const text = (userText || "").trim();
     if (!text) return "";
@@ -56,7 +58,9 @@
       body: JSON.stringify({
         userText: text,
         history: ctx.history || [],
-        mode: ctx.mode || "call", // modo llamada por defecto
+        mode: ctx.mode || "call", // modo llamada por default
+        maxOutputTokens: ctx.maxOutputTokens || 90, // 1–2 frases aprox
+        temperature: typeof ctx.temperature === "number" ? ctx.temperature : 0.2,
       }),
     });
 
@@ -72,53 +76,54 @@
     return String(reply || "").trim();
   };
 
-  // ---------------- TTS (OpenAI /api/tts) ----------------
-  // ✅ OJO: ESTE ARCHIVO ES "script" NORMAL (NO module).
-  // Por eso: TODOS los "await" van dentro de funciones async.
-  window.VX_ttsSpeak = async function (text, opts = {}) {
+  // ---------------- TTS (OpenAI /api/tts: voz consistente) ----------------
+  // IMPORTANTE: NO usamos "await" aquí para evitar SyntaxError si el deploy te deja la función sin async.
+  window.VX_ttsSpeak = function (text, opts = {}) {
     const t = String(text || "").trim();
-    if (!t) return;
+    if (!t) return Promise.resolve();
 
-    // ✅ Para voz: recorta a 1–2 frases para que el TTS responda rápido
+    // ✅ Para voz: máximo 1–2 frases (reduce latencia brutal sin tocar el texto en pantalla)
     const tSpeak = t.length > 240 ? (t.slice(0, 240).replace(/\s+\S*$/, "") + "…") : t;
 
-    // ✅ Forzamos modelo rápido para conversación
     const payload = {
       text: tSpeak,
-      model: "tts-1",
-      voice: opts.voice || "nova",
+      model: "tts-1",          // ✅ más rápido que tts-1-hd
+      voice: "nova",           // ✅ voz femenina consistente
       format: "mp3",
-      speed: typeof opts.speed === "number" ? opts.speed : 0.85,
+      speed: 0.85              // ✅ más lento para aprender (NO afecta la latencia grande; afecta dicción)
     };
 
-    const r = await fetch("/api/tts", {
+    return fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      body: JSON.stringify(payload),
-    });
+      body: JSON.stringify({ ...payload, ...(opts || {}) }),
+    })
+      .then((r) => {
+        if (!r.ok) {
+          return r.text().then((errTxt) => {
+            throw new Error(`TTS ${r.status}: ${errTxt}`);
+          });
+        }
+        return r.blob();
+      })
+      .then((audioBlob) => {
+        if (!audioBlob || audioBlob.size === 0) throw new Error("TTS returned empty audio");
 
-    if (!r.ok) {
-      const errTxt = await r.text();
-      throw new Error(`TTS ${r.status}: ${errTxt}`);
-    }
+        const url = URL.createObjectURL(audioBlob);
+        const a = new Audio(url);
+        a.preload = "auto";
 
-    const audioBlob = await r.blob();
-    if (!audioBlob || audioBlob.size === 0) throw new Error("TTS returned empty audio");
-
-    const url = URL.createObjectURL(audioBlob);
-    const a = new Audio(url);
-    a.preload = "auto";
-
-    try {
-      await a.play();
-      await new Promise((resolve) => {
-        a.onended = () => resolve();
-        a.onerror = () => resolve();
+        return a.play()
+          .catch(() => {}) // autoplay policies: no truena la llamada
+          .then(() => new Promise((resolve) => {
+            a.onended = () => resolve();
+            a.onerror = () => resolve();
+          }))
+          .finally(() => {
+            try { URL.revokeObjectURL(url); } catch {}
+          });
       });
-    } finally {
-      URL.revokeObjectURL(url);
-    }
   };
 
   console.log("✅ voicePipeline loaded", {
