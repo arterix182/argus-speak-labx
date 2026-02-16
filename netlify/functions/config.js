@@ -1,11 +1,11 @@
-exports.handler = async ()=> {
+export async function handler() {
   return {
     statusCode: 200,
-    headers: { "Content-Type":"application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      ok:true,
-      note:"beta config ok"
-    })
+      ok: true,
+      note: "config loaded",
+    }),
   };
-};
+}
 
