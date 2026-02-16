@@ -20,21 +20,31 @@
 
   // ---------------- STT ----------------
   window.VX_sttTranscribe = async function (blob, opts = {}) {
-    if (!blob || !blob.size) throw new Error("Empty audio blob");
+  if (!blob || !blob.size) throw new Error("Empty audio blob");
 
-    const fd = new FormData();
-    fd.append("file", blob, "audio.webm");
-    fd.append("mimeType", opts.mimeType || blob.type || "audio/webm");
+  const r = await fetch("/api/stt", {
+    method: "POST",
+    headers: {
+      "Content-Type": blob.type || "application/octet-stream",
+      "X-Filename": opts.filename || "audio.webm",
+      "X-MimeType": opts.mimeType || blob.type || "audio/webm",
+    },
+    cache: "no-store",
+    body: blob,
+  });
 
-    const r = await fetch("/api/stt", {
-      method: "POST",
-      body: fd,
-      cache: "no-store",
-    });
+  // mismo parser que ya tienes
+  const txt = await r.text();
+  let j = {};
+  try { j = txt ? JSON.parse(txt) : {}; }
+  catch { j = { error: txt }; }
 
-    const j = await jsonOrThrow(r, "STT");
-    return (j.text || "").trim();
-  };
+  if (!r.ok) {
+    const msg = (j && (j.error || j.message)) ? (j.error || j.message) : (txt || ("HTTP " + r.status));
+    throw new Error(`STT ${r.status}: ${msg}`);
+  }
+  return (j.text || "").trim();
+};
 
   // ✅ Alias que espera voiceRecorder.js
   window.VX_transcribeAudio = async function (blob, opts = {}) {
