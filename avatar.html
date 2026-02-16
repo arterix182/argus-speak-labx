@@ -3,636 +3,567 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ARGUS — Avatar Call (Beta)</title>
-  <link rel="icon" href="data:,">
+  <title>Avatar Beta (Voz → IA → Voz)</title>
+
+  <!-- (opcional) evita 404 en consola si subes favicon -->
+  <link rel="icon" href="/assets/favicon.ico" />
+
   <style>
     :root{
-      --bg:#071428; --card:#0b203b; --card2:#0a1b33; --txt:#e8f1ff; --mut:#9fb4d6;
-      --b:#1d3a66; --btn:#0f2a4e; --btn2:#11325c; --good:#15d36b; --warn:#ffcc00;
-      --r:18px;
+      --bg1:#081226;
+      --bg2:#030916;
+      --card: rgba(255,255,255,.06);
+      --card2: rgba(0,0,0,.25);
+      --line: rgba(255,255,255,.10);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.70);
+      --accent: rgba(0,210,255,.95);
+      --good: rgba(0,255,170,.95);
     }
-    *{box-sizing:border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;}
-    body{margin:0; background:linear-gradient(180deg,#061225 0%, #050c18 100%); color:var(--txt);}
-    .wrap{max-width:1100px; margin:0 auto; padding:22px;}
-    .card{
-      background:linear-gradient(180deg,var(--card) 0%, var(--card2) 100%);
-      border:1px solid var(--b); border-radius:var(--r); padding:18px;
-      box-shadow:0 20px 60px rgba(0,0,0,.35);
-    }
-    h1{margin:0 0 6px 0; font-size:34px; letter-spacing:.3px;}
-    .sub{color:var(--mut); margin:0 0 18px 0;}
-    .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center;}
-    .btn{
-      background:linear-gradient(180deg,var(--btn2),var(--btn));
-      border:1px solid #274a7d; color:var(--txt); padding:12px 14px;
-      border-radius:16px; cursor:pointer; font-weight:700; letter-spacing:.2px;
-    }
-    .btn:active{transform:translateY(1px);}
-    .pill{padding:10px 12px; border-radius:999px; border:1px solid #274a7d; color:var(--mut); background:rgba(10,25,45,.55);}
-    select{background:rgba(10,25,45,.7); border:1px solid #274a7d; color:var(--txt); padding:10px 12px; border-radius:14px; outline:none;}
-    .grid{display:grid; grid-template-columns: 1.05fr .95fr; gap:14px; margin-top:14px;}
-    @media (max-width:920px){ .grid{grid-template-columns:1fr;} }
-    .box{background:rgba(6,14,28,.45); border:1px solid #203f70; border-radius:18px; padding:14px;}
-    .label{font-weight:800; margin-bottom:8px;}
-    #log{white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:14px; line-height:1.35; color:#d7e6ff;}
-    .state{display:flex; gap:10px; align-items:center; margin-top:10px;}
-    .dot{width:12px; height:12px; border-radius:999px; background:#4b6b9b; box-shadow:0 0 0 3px rgba(75,107,155,.18);}
-    .dot.good{background:var(--good); box-shadow:0 0 0 3px rgba(21,211,107,.2);}
-    .dot.warn{background:var(--warn); box-shadow:0 0 0 3px rgba(255,204,0,.2);}
-    .mut{color:var(--mut);}
-    input[type="range"]{width:220px;}
-    .small{font-size:13px; color:var(--mut);}
 
-    /* Avatar: 2 capas (closed + open) */
-    .avatarStack{position:relative;}
-    #avatarClosed, #avatarOpen{
-      width:100%;
-      border-radius:16px;
-      border:1px solid #224a7d;
-      background:#040b16;
-      display:block;
-      aspect-ratio: 16/9;
-      object-fit: cover;
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 800px at 25% 15%, rgba(0,180,255,.14), transparent 55%),
+        radial-gradient(1000px 700px at 80% 30%, rgba(0,255,170,.08), transparent 55%),
+        linear-gradient(180deg, var(--bg1), var(--bg2));
+      min-height:100vh;
+      padding:22px;
     }
-    #avatarOpen{
-      position:absolute; left:0; top:0;
-      opacity:0;
+
+    .wrap{
+      max-width: 1200px;
+      margin: 0 auto;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      padding:16px 18px;
+      border-radius: 20px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 70px rgba(0,0,0,.45);
+    }
+
+    .title{
+      display:flex;
+      gap:12px;
+      align-items:center;
+    }
+
+    .micIcon{
+      width:34px; height:34px;
+      border-radius: 12px;
+      display:grid; place-items:center;
+      background: rgba(0,210,255,.12);
+      border:1px solid rgba(0,210,255,.18);
+    }
+
+    h1{
+      margin:0;
+      font-size: 28px;
+      letter-spacing: .2px;
+    }
+
+    .sub{
+      margin-top:6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .apiBadge{
+      padding:10px 12px;
+      border-radius: 999px;
+      border:1px solid var(--line);
+      background: rgba(0,0,0,.18);
+      font-size: 12px;
+      color: var(--muted);
+      white-space:nowrap;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 360px 1fr;
+      gap:16px;
+      align-items:start;
+    }
+
+    @media (max-width: 980px){
+      .grid{ grid-template-columns: 1fr; }
+    }
+
+    .card{
+      border-radius: 22px;
+      background: rgba(255,255,255,.05);
+      border:1px solid var(--line);
+      box-shadow: 0 18px 70px rgba(0,0,0,.42);
+      overflow:hidden;
+    }
+
+    .cardPad{ padding:16px; }
+
+    .row{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+
+    button, select, input{
+      border-radius: 16px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.20);
+      color: var(--text);
+      padding: 12px 14px;
+      font-size: 14px;
+      outline: none;
+    }
+    button{
+      cursor:pointer;
+      transition: transform .08s ease, background .2s ease;
+    }
+    button:hover{ transform: translateY(-1px); background: rgba(255,255,255,.06); }
+    button:active{ transform: translateY(0px); }
+
+    .btnPrimary{
+      background: rgba(0,210,255,.12);
+      border-color: rgba(0,210,255,.20);
+    }
+
+    .btnDanger{
+      background: rgba(255,80,80,.10);
+      border-color: rgba(255,80,80,.16);
+    }
+
+    .stateLine{
+      margin-top:10px;
+      color: var(--muted);
+      font-size: 13px;
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+    .pill{
+      display:inline-flex;
+      gap:8px;
+      align-items:center;
+      padding: 4px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.18);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dot{
+      width:8px; height:8px; border-radius:99px;
+      background: rgba(255,255,255,.35);
+    }
+    .dot.good{ background: rgba(0,255,170,.85); }
+    .dot.accent{ background: rgba(0,210,255,.85); }
+
+    /* =========================
+       AVATAR B) CSS PRO
+       ========================= */
+    .vx-avatarWrap{
+      position: relative;
+      width: 100%;
+      aspect-ratio: 3 / 4;
+      border-radius: 22px;
+      overflow: hidden;
+      background: radial-gradient(120% 80% at 30% 20%, rgba(0,180,255,.18), rgba(10,18,35,.86) 60%, rgba(0,0,0,.88));
+      border: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 18px 70px rgba(0,0,0,.55);
+      transform: translateZ(0);
+    }
+
+    .vx-avatarImg{
+      position:absolute;
+      inset: 0;
+      width:100%;
+      height:100%;
+      object-fit: cover;
+      transform-origin: 50% 60%;
+      filter: drop-shadow(0 14px 40px rgba(0,0,0,.55));
+      animation: vxBreathe 2.8s ease-in-out infinite;
+    }
+
+    .vx-avatarGlow{
+      position:absolute;
+      inset:-30%;
+      background: radial-gradient(circle at 40% 20%,
+        rgba(0,210,255,.25),
+        rgba(0,120,255,.08) 35%,
+        rgba(0,0,0,0) 70%);
+      filter: blur(22px);
+      opacity:.9;
+      animation: vxGlow 3.2s ease-in-out infinite;
       pointer-events:none;
-      transition: opacity 40ms linear;
+    }
+
+    .vx-avatarRing{
+      position:absolute;
+      inset: 12px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.10);
+      box-shadow: inset 0 0 0 1px rgba(0,180,255,.06);
+      pointer-events:none;
+    }
+
+    .vx-avatarLabel{
+      position:absolute;
+      left:12px;
+      bottom:12px;
+      display:flex;
+      gap:10px;
+      align-items:baseline;
+      padding:10px 12px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.10);
+      backdrop-filter: blur(10px);
+      color: rgba(255,255,255,.92);
+    }
+    .vx-avatarLabel b{ letter-spacing:.3px; }
+    .vx-avatarLabel span{
+      font-size: 12px;
+      opacity: .9;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.14);
+    }
+
+    @keyframes vxBreathe{
+      0%,100%{ transform: scale(1) translateY(0px); filter: drop-shadow(0 14px 40px rgba(0,0,0,.55)); }
+      50%{ transform: scale(1.02) translateY(-2px); filter: drop-shadow(0 18px 55px rgba(0,0,0,.55)); }
+    }
+    @keyframes vxGlow{
+      0%,100%{ transform: translate(-2%, -1%) scale(1); opacity:.85; }
+      50%{ transform: translate(2%, 1%) scale(1.05); opacity:1; }
+    }
+
+    /* Estados */
+    .vx-avatarWrap[data-state="idle"] .vx-avatarImg{ animation-duration: 2.8s; }
+    .vx-avatarWrap[data-state="listening"] .vx-avatarGlow{ opacity:1; animation-duration: 1.4s; }
+    .vx-avatarWrap[data-state="listening"]{ box-shadow: 0 18px 70px rgba(0,0,0,.55), 0 0 0 2px rgba(0,210,255,.12); }
+    .vx-avatarWrap[data-state="thinking"] .vx-avatarImg{ animation-duration: 2.2s; filter: drop-shadow(0 14px 40px rgba(0,0,0,.55)) saturate(1.1); }
+    .vx-avatarWrap[data-state="thinking"] .vx-avatarGlow{ animation-duration: 1.0s; opacity: 1; }
+    .vx-avatarWrap[data-state="speaking"] .vx-avatarImg{ animation-duration: .55s; }
+    .vx-avatarWrap[data-state="speaking"]{ box-shadow: 0 18px 70px rgba(0,0,0,.55), 0 0 0 2px rgba(0,255,170,.12); }
+
+    /* Log */
+    .logBox{
+      margin-top:12px;
+      border-radius: 18px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.20);
+      padding: 12px;
+      height: 360px;
+      overflow:auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      color: rgba(255,255,255,.88);
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .hint{
+      margin-top:10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .audioRow{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      width:100%;
+      margin-top: 10px;
+    }
+    .meter{
+      flex:1;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.08);
+      overflow:hidden;
+      position:relative;
+    }
+    .meter > i{
+      display:block;
+      height:100%;
+      width:0%;
+      background: linear-gradient(90deg, rgba(0,210,255,.85), rgba(0,255,170,.85));
+      border-radius:999px;
+      transition: width .08s linear;
     }
   </style>
 </head>
+
 <body>
   <div class="wrap">
-    <div class="card">
-      <div class="row" style="justify-content:space-between;">
-        <div>
-          <h1>Avatar Beta (Voz → IA → Voz)</h1>
-          <p class="sub">Modo conversación continua tipo llamada. Se detiene por silencio (~0.7s) y vuelve a escuchar automáticamente.</p>
-        </div>
-        <div class="pill" id="apiPill">API: STT | CHAT | TTS</div>
-      </div>
-
-      <div class="row">
-        <button class="btn" id="btnCall">Iniciar llamada</button>
-        <button class="btn" id="btnTestText">Probar Chat (texto)</button>
-        <button class="btn" id="btnTestAudio">🔊 Test audio</button>
-        <button class="btn" id="btnClear">Limpiar</button>
-        <button class="btn" id="btnReset">🧹 Reset beta</button>
-
-        <span class="pill">Mic:</span>
-        <select id="micSelect"></select>
-
-        <span class="pill">Nivel:</span>
-        <input id="levelBar" type="range" min="0" max="100" value="0" />
-        <span class="small" id="levelTxt">0</span>
-      </div>
-
-      <div class="state">
-        <span class="dot" id="dot"></span>
-        <div><b>Estado:</b> <span id="state">idle</span></div>
-        <div class="mut" id="stateMsg"></div>
-      </div>
-
-      <div class="grid">
-        <div class="box">
-          <div class="label">Avatar (Lip-sync)</div>
-
-          <div class="avatarStack">
-            <video id="avatarClosed" autoplay muted playsinline loop></video>
-            <video id="avatarOpen" autoplay muted playsinline loop></video>
-          </div>
-
-          <div class="small" style="margin-top:8px;">
-            Estados:
-            <code>/assets/avatar_idle.mp4</code>,
-            <code>avatar_listening.mp4</code>,
-            <code>avatar_thinking.mp4</code><br/>
-            Lip-sync:
-            <code>avatar_speaking_closed.mp4</code>,
-            <code>avatar_speaking_open.mp4</code>
+    <div class="topbar">
+      <div>
+        <div class="title">
+          <div class="micIcon">🎙️</div>
+          <div>
+            <h1>Avatar Beta (Voz → IA → Voz)</h1>
+            <div class="sub">Toca el botón para hablar. Se detiene por silencio (~0.7s). Click de nuevo para colgar.</div>
           </div>
         </div>
+      </div>
+      <div class="apiBadge">API: STT | CHAT | TTS</div>
+    </div>
 
-        <div class="box">
-          <div class="label">Log</div>
-          <pre id="log">SYS: listo.</pre>
+    <div class="grid">
+      <!-- LEFT -->
+      <div class="card">
+        <div class="cardPad">
+          <!-- AVATAR -->
+          <div class="vx-avatarWrap" id="vxAvatarWrap" data-state="idle">
+            <div class="vx-avatarGlow"></div>
+            <img id="vxAvatarImg" class="vx-avatarImg" src="/assets/avatar.png" alt="ARGUS Avatar" />
+            <div class="vx-avatarRing"></div>
+            <div class="vx-avatarLabel">
+              <b>ARGUS Avatar</b>
+              <span id="vxAvatarStateTxt">idle</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <button id="btnCall" class="btnPrimary">📞 Iniciar llamada</button>
+            <select id="mode">
+              <option value="coach">Coach</option>
+              <option value="grammar">Grammar</option>
+              <option value="roleplay">Roleplay</option>
+            </select>
+            <button id="btnText" class="">💬 Probar Chat (texto)</button>
+            <button id="btnClear" class="btnDanger">🧹 Limpiar</button>
+          </div>
+
+          <div class="audioRow">
+            <div class="meter" title="Nivel de audio"><i id="meterFill"></i></div>
+            <div class="pill"><span class="dot accent" id="dotState"></span><span id="stateTxt">idle</span></div>
+          </div>
+
+          <div class="row" style="margin-top:12px; width:100%;">
+            <select id="micSelect" style="width:100%;">
+              <option value="">Micrófono</option>
+            </select>
+            <button id="btnMics">Actualizar mics</button>
+          </div>
+
+          <div class="hint">Si estás en lugar ruidoso, habla más cerca del mic. Si no reproduce audio, revisa tu salida de audio del sistema.</div>
         </div>
       </div>
 
+      <!-- RIGHT -->
+      <div class="card">
+        <div class="cardPad">
+          <div class="stateLine">
+            <span class="pill"><span class="dot" id="dotCall"></span><span id="callTxt">Llamada detenida</span></span>
+          </div>
+
+          <div class="logBox" id="log"></div>
+
+          <div class="row" style="margin-top:12px; width:100%;">
+            <input id="textIn" placeholder='Ej: "I no have time yesterday"' style="flex:1; min-width:240px;" />
+            <button id="btnSendText" class="btnPrimary">Enviar</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-<script>
-/** =========================
- *  UTIL
- *  ========================= */
-const $ = (id)=>document.getElementById(id);
-const logEl = $("log");
-function addLog(s){ logEl.textContent += "\n" + s; logEl.scrollTop = logEl.scrollHeight; console.log(s); }
-
-function setState(st, msg=""){
-  $("state").textContent = st;
-  $("stateMsg").textContent = msg;
-  const dot = $("dot");
-  dot.className = "dot" + (st==="idle" ? "" : (st==="listening" ? " good" : " warn"));
-  VX_setAvatarState(st);
-}
-
-/** =========================
- *  AVATAR ESTADOS + SPEAKING 2 CAPAS
- *  ========================= */
-const AVATAR = {
-  idle:      "/assets/avatar_idle.mp4",
-  listening: "/assets/avatar_listening.mp4",
-  thinking:  "/assets/avatar_thinking.mp4",
-  speaking_closed: "/assets/avatar_speaking_closed.mp4",
-  speaking_open:   "/assets/avatar_speaking_open.mp4"
-};
-
-function VX_setAvatarState(st){
-  const vC = $("avatarClosed");
-  const vO = $("avatarOpen");
-
-  if(st !== "speaking"){
-    const src = AVATAR[st] || AVATAR.idle;
-
-    if(vC.dataset.src !== src){
-      vC.dataset.src = src;
-      vC.src = src;
-      vC.play().catch(()=>{});
+  <script>
+    // =========================================================
+    // UTIL
+    // =========================================================
+    const $ = (id)=>document.getElementById(id);
+    const logEl = $("log");
+    function addLog(line){
+      const ts = new Date().toLocaleTimeString();
+      logEl.textContent += `[${ts}] ${line}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
     }
 
-    // apaga open
-    vO.style.opacity = 0;
-    try{ vO.pause(); }catch(e){}
-    vO.removeAttribute("src");
-    vO.load();
-    return;
-  }
-
-  // speaking: 2 capas
-  const srcC = AVATAR.speaking_closed;
-  const srcO = AVATAR.speaking_open;
-
-  if(vC.dataset.src !== srcC){
-    vC.dataset.src = srcC;
-    vC.src = srcC;
-  }
-  if(vO.dataset.src !== srcO){
-    vO.dataset.src = srcO;
-    vO.src = srcO;
-  }
-
-  vC.play().catch(()=>{});
-  vO.play().catch(()=>{});
-}
-
-/** =========================
- *  AUDIO UNLOCK (autoplay)
- *  ========================= */
-async function VX_unlockAudio(){
-  try{
-    const a = new Audio();
-    a.src = "data:audio/mp3;base64,//uQZAAAAAAAAAAAA";
-    await a.play().catch(()=>{});
-  }catch(e){}
-}
-
-/** =========================
- *  PIPELINE API
- *  - STT: /api/stt (multipart/form-data)
- *  - CHAT: /api/chat (json)
- *  - TTS: /api/tts (json -> audio)
- *  ========================= */
-async function VX_transcribeAudio(blob){
-  const fd = new FormData();
-  fd.append("file", blob, "audio.webm");
-  const r = await fetch("/api/stt", { method:"POST", body: fd });
-  const j = await r.json().catch(()=> ({}));
-  if(!r.ok) throw new Error(JSON.stringify(j));
-  return (j.text || "").trim();
-}
-
-async function VX_chatReply(userText){
-  const r = await fetch("/api/chat", {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({ userText })
-  });
-  const j = await r.json().catch(()=> ({}));
-  if(!r.ok) throw new Error(JSON.stringify(j));
-  return (j.reply || "").trim();
-}
-
-async function VX_ttsAudio(text){
-  const r = await fetch("/api/tts", {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({ text })
-  });
-  const ct = r.headers.get("content-type") || "audio/mpeg";
-  const buf = await r.arrayBuffer();
-  if(!r.ok) throw new Error("TTS failed " + r.status);
-  return { buf, ct };
-}
-
-// Player global único
-const VX_audioPlayer = new Audio();
-VX_audioPlayer.preload = "auto";
-VX_audioPlayer.muted = false;
-VX_audioPlayer.volume = 1;
-
-/** =========================
- *  LIP SYNC (audio-reactive)
- *  ========================= */
-let LIP_ctx = null;
-let LIP_analyser = null;
-let LIP_src = null;
-let LIP_data = null;
-let LIP_raf = null;
-
-function LIP_start(){
-  const vO = $("avatarOpen");
-  if(!vO) return;
-
-  if(!LIP_ctx || LIP_ctx.state === "closed"){
-    LIP_ctx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  LIP_ctx.resume().catch(()=>{});
-
-  if(!LIP_analyser){
-    LIP_analyser = LIP_ctx.createAnalyser();
-    LIP_analyser.fftSize = 512;
-    LIP_data = new Uint8Array(LIP_analyser.frequencyBinCount);
-  }
-
-  // MediaElementSource solo una vez por elemento
-  if(!LIP_src){
-    try{
-      LIP_src = LIP_ctx.createMediaElementSource(VX_audioPlayer);
-      LIP_src.connect(LIP_analyser);
-      LIP_analyser.connect(LIP_ctx.destination);
-    }catch(e){
-      console.warn("LipSync connect failed:", e);
-      return;
-    }
-  }
-
-  const tick = ()=>{
-    LIP_analyser.getByteFrequencyData(LIP_data);
-    let sum = 0;
-    for(let i=0;i<LIP_data.length;i++) sum += LIP_data[i];
-    const avg = sum / LIP_data.length; // 0..255
-
-    // Mapea energía -> 0..1 (ajusta sensibilidad aquí si quieres)
-    let open = (avg - 12) / 70;
-    open = Math.max(0, Math.min(1, open));
-
-    // opacidad de la capa "open"
-    vO.style.opacity = String(open * 0.95);
-
-    LIP_raf = requestAnimationFrame(tick);
-  };
-
-  if(!LIP_raf) tick();
-}
-
-function LIP_stop(){
-  const vO = $("avatarOpen");
-  if(vO) vO.style.opacity = 0;
-  if(LIP_raf){
-    cancelAnimationFrame(LIP_raf);
-    LIP_raf = null;
-  }
-}
-
-async function VX_playAudioAndWait(buf, mime){
-  const blob = new Blob([buf], { type: (mime && mime.includes("audio")) ? mime : "audio/mpeg" });
-  const url = URL.createObjectURL(blob);
-
-  VX_audioPlayer.pause();
-  if(VX_audioPlayer._vxUrl){ URL.revokeObjectURL(VX_audioPlayer._vxUrl); }
-  VX_audioPlayer._vxUrl = url;
-
-  VX_audioPlayer.src = url;
-  VX_audioPlayer.currentTime = 0;
-  VX_audioPlayer.muted = false;
-  VX_audioPlayer.volume = 1;
-
-  // speaking + lip sync exacto cuando suena el audio
-  setState("speaking", "TTS...");
-  LIP_start();
-
-  await VX_audioPlayer.play();
-
-  await new Promise((resolve)=>{
-    VX_audioPlayer.onended = ()=> resolve();
-    VX_audioPlayer.onerror = ()=> resolve();
-  });
-
-  LIP_stop();
-
-  URL.revokeObjectURL(url);
-  VX_audioPlayer._vxUrl = null;
-}
-
-/** =========================
- *  CONVERSACIÓN CONTINUA (LLAMADA)
- *  ========================= */
-let callActive = false;
-let micStream = null;
-
-let audioCtx = null;
-let analyser = null;
-let micSource = null;
-
-const CFG = {
-  silenceHoldMs: 700,
-  minRecordMs: 900,
-  startThreshold: 0.020,
-  silenceThreshold: 0.012,
-  maxTurnMs: 12000
-};
-
-async function refreshMics(){
-  const sel = $("micSelect");
-  const devs = await navigator.mediaDevices.enumerateDevices();
-  const mics = devs.filter(d=>d.kind==="audioinput");
-  sel.innerHTML = "";
-  mics.forEach((m,i)=>{
-    const opt = document.createElement("option");
-    opt.value = m.deviceId;
-    opt.textContent = m.label || ("Mic " + (i+1));
-    sel.appendChild(opt);
-  });
-}
-
-async function ensureMicStream(){
-  if(micStream && micStream.getTracks().some(t=>t.readyState==="live")) return micStream;
-
-  const sel = $("micSelect");
-  const deviceId = sel.value ? { exact: sel.value } : undefined;
-
-  micStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      deviceId,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true
-    }
-  });
-
-  if(!audioCtx || audioCtx.state==="closed"){
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  await audioCtx.resume().catch(()=>{});
-
-  analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 1024;
-
-  try{ micSource?.disconnect(); }catch(e){}
-  micSource = audioCtx.createMediaStreamSource(micStream);
-  micSource.connect(analyser);
-
-  return micStream;
-}
-
-function getRMS(){
-  if(!analyser) return 0;
-  const data = new Uint8Array(analyser.fftSize);
-  analyser.getByteTimeDomainData(data);
-  let sum = 0;
-  for(let i=0;i<data.length;i++){
-    const v = (data[i]-128)/128;
-    sum += v*v;
-  }
-  return Math.sqrt(sum / data.length);
-}
-
-function updateLevelUI(rms){
-  const v = Math.max(0, Math.min(100, Math.round(rms*600)));
-  $("levelBar").value = v;
-  $("levelTxt").textContent = v;
-}
-
-async function recordOneTurn(){
-  await ensureMicStream();
-
-  setState("listening","Escuchando (auto-stop por silencio)");
-  addLog("SYS: Escuchando...");
-
-  const chunks = [];
-  const rec = new MediaRecorder(micStream, { mimeType:"audio/webm" });
-
-  let startedAt = 0;
-  let voiceSeen = false;
-  let lastVoiceTs = 0;
-  let stopRequested = false;
-
-  rec.ondataavailable = (e)=>{ if(e.data && e.data.size) chunks.push(e.data); };
-
-  const stopPromise = new Promise((resolve,reject)=>{
-    rec.onstop = ()=> resolve();
-    rec.onerror = (e)=> reject(e.error || e);
-  });
-
-  rec.start(250);
-
-  startedAt = performance.now();
-  lastVoiceTs = startedAt;
-
-  while(true){
-    if(!callActive){
-      try{ rec.stop(); }catch(e){}
-      await stopPromise.catch(()=>{});
-      return null;
-    }
-
-    const now = performance.now();
-    const rms = getRMS();
-    updateLevelUI(rms);
-
-    if(rms >= CFG.startThreshold){
-      voiceSeen = true;
-      lastVoiceTs = now;
-    }
-
-    if(voiceSeen && rms <= CFG.silenceThreshold){
-      const silentFor = now - lastVoiceTs;
-      const recordedFor = now - startedAt;
-      if(recordedFor >= CFG.minRecordMs && silentFor >= CFG.silenceHoldMs){
-        stopRequested = true;
+    // =========================================================
+    // AVATAR STATES (B)
+    // =========================================================
+    (function(){
+      const wrap = $("vxAvatarWrap");
+      const txt  = $("vxAvatarStateTxt");
+      function setState(s){
+        if(!wrap) return;
+        wrap.dataset.state = s || "idle";
+        if(txt) txt.textContent = wrap.dataset.state;
+        $("stateTxt").textContent = wrap.dataset.state;
+        $("dotState").className = "dot " + (s==="speaking" ? "good" : "accent");
       }
+      window.VX_setAvatarState = setState;
+      setState("idle");
+    })();
+
+    // =========================================================
+    // MIC + METER
+    // =========================================================
+    let audioCtx, analyser, sourceNode, mediaStream;
+    let rafMeter = null;
+
+    async function refreshMics(){
+      const sel = $("micSelect");
+      sel.innerHTML = `<option value="">Micrófono</option>`;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices.filter(d=>d.kind==="audioinput");
+      for(const d of mics){
+        const opt = document.createElement("option");
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Mic ${sel.length}`;
+        sel.appendChild(opt);
+      }
+      addLog("SYS: Mics actualizados.");
     }
 
-    if(now - startedAt >= CFG.maxTurnMs) stopRequested = true;
+    async function startMeter(deviceId){
+      stopMeter();
+      const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+      mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
 
-    if(stopRequested){
-      try{ rec.stop(); }catch(e){}
-      break;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+
+      sourceNode = audioCtx.createMediaStreamSource(mediaStream);
+      sourceNode.connect(analyser);
+
+      const data = new Uint8Array(analyser.fftSize);
+      const fill = $("meterFill");
+
+      function tick(){
+        analyser.getByteTimeDomainData(data);
+        // RMS simple
+        let sum = 0;
+        for(let i=0;i<data.length;i++){
+          const v = (data[i]-128)/128;
+          sum += v*v;
+        }
+        const rms = Math.sqrt(sum/data.length); // 0..1
+        const pct = Math.min(100, Math.max(0, (rms*180))); // escala
+        fill.style.width = pct.toFixed(1) + "%";
+        rafMeter = requestAnimationFrame(tick);
+      }
+      tick();
     }
 
-    await new Promise(r=>setTimeout(r, 40));
-  }
-
-  await stopPromise;
-
-  const blob = new Blob(chunks, { type:"audio/webm" });
-  if(blob.size < 5000){
-    addLog("SYS: Habla al menos 1 segundo. Intenta de nuevo.");
-    return null;
-  }
-  return blob;
-}
-
-async function runTurn(){
-  await VX_unlockAudio().catch(()=>{});
-
-  const blob = await recordOneTurn();
-  if(!blob) return;
-
-  setState("thinking","STT...");
-  addLog("SYS: STT...");
-  const userText = await VX_transcribeAudio(blob);
-
-  if(!userText){
-    addLog("SYS: No detecté voz clara. Intenta de nuevo.");
-    return;
-  }
-  addLog("YOU: " + userText);
-
-  setState("thinking","CHAT...");
-  addLog("SYS: CHAT...");
-  const reply = await VX_chatReply(userText);
-
-  if(!reply){
-    addLog("SYS: Sin respuesta.");
-    return;
-  }
-  addLog("BOT: " + reply);
-
-  setState("speaking","TTS...");
-  addLog("SYS: TTS...");
-  const {buf, ct} = await VX_ttsAudio(reply);
-  await VX_playAudioAndWait(buf, ct);
-
-  // ✅ si sigue la llamada, vuelve a escuchar; si no, idle
-  if(callActive){
-    setState("listening", "Siguiente turno...");
-    addLog("SYS: Listo para escuchar de nuevo.");
-  }else{
-    setState("idle","Listo");
-  }
-}
-
-async function callLoop(){
-  while(callActive){
-    try{
-      await runTurn();
-    }catch(e){
-      console.error(e);
-      addLog("SYS: ERROR: " + (e?.message || e));
-      setState("idle","Error, reintentando...");
-      await new Promise(r=>setTimeout(r, 450));
+    function stopMeter(){
+      if(rafMeter){ cancelAnimationFrame(rafMeter); rafMeter=null; }
+      if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; }
+      if(audioCtx){ audioCtx.close(); audioCtx=null; }
+      $("meterFill").style.width = "0%";
     }
-  }
-}
 
-async function startCall(){
-  callActive = true;
-  $("btnCall").textContent = "Detener llamada";
-  addLog("SYS: Llamada iniciada.");
-  await ensureMicStream();
-  callLoop();
-}
+    // =========================================================
+    // CALL LOOP (placeholder – aquí conectas tu pipeline real)
+    // =========================================================
+    let callActive = false;
 
-function stopCall(){
-  callActive = false;
-  $("btnCall").textContent = "Iniciar llamada";
-  setState("idle","Llamada detenida.");
-  addLog("SYS: Llamada detenida.");
-}
+    function setCallUI(on){
+      callActive = on;
+      $("btnCall").textContent = on ? "📴 Colgar" : "📞 Iniciar llamada";
+      $("dotCall").className = "dot " + (on ? "good" : "");
+      $("callTxt").textContent = on ? "Llamada iniciada" : "Llamada detenida";
+    }
 
-/** =========================
- *  EVENTS
- *  ========================= */
-$("btnCall").onclick = async ()=>{
-  await VX_unlockAudio().catch(()=>{});
-  if(!callActive) startCall();
-  else stopCall();
-};
+    // Simulación de estados para que veas el avatar moverse.
+    // Cuando lo conectes con tu STT/CHAT/TTS real:
+    // - listening al grabar
+    // - thinking cuando manda a chat
+    // - speaking cuando reproduce TTS
+    // - idle al final
+    async function demoOneTurn(text){
+      window.VX_setAvatarState("listening");
+      addLog("SYS: Escuchando... (silencio = stop)");
+      await new Promise(r=>setTimeout(r, 500));
 
-$("btnClear").onclick = ()=>{
-  logEl.textContent = "SYS: listo.";
-  $("levelBar").value = 0;
-  $("levelTxt").textContent = "0";
-  setState("idle","");
-};
+      window.VX_setAvatarState("thinking");
+      addLog("SYS: CHAT...");
+      await new Promise(r=>setTimeout(r, 600));
 
-$("btnReset").onclick = ()=>{
-  // Detén llamada
-  callActive = false;
-  try{ $("btnCall").textContent = "Iniciar llamada"; }catch{}
-  // Limpia UI
-  logEl.textContent = "SYS: reset OK.";
-  $("levelBar").value = 0;
-  $("levelTxt").textContent = "0";
-  setState("idle", "Reset");
-  // Pausa audio + lip
-  try{ VX_audioPlayer.pause(); }catch(e){}
-  try{ LIP_stop(); }catch(e){}
-  addLog("SYS: Beta reseteada.");
-};
+      addLog(`YOU: ${text}`);
+      addLog(`BOT: (respuesta demo) "${text}" → corregido y explicado.`);
+      addLog(`SYS: TTS...`);
 
-$("btnTestAudio").onclick = async ()=>{
-  try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    g.gain.value = 0.06;
-    o.frequency.value = 660;
-    o.connect(g); g.connect(ctx.destination);
-    await ctx.resume();
-    o.start();
-    setTimeout(()=>{ o.stop(); ctx.close(); }, 200);
-    addLog("SYS: Test audio OK (beep).");
-  }catch(e){
-    addLog("SYS: Test audio ERROR: " + (e?.message||e));
-  }
-};
+      window.VX_setAvatarState("speaking");
+      await new Promise(r=>setTimeout(r, 900));
 
-$("btnTestText").onclick = async ()=>{
-  await VX_unlockAudio().catch(()=>{});
-  try{
-    setState("thinking","CHAT...");
-    addLog("SYS: CHAT (texto)...");
-    const reply = await VX_chatReply("Give me one short correction + one example. Keep it very short.");
-    addLog("BOT: " + reply);
+      window.VX_setAvatarState("idle");
+      addLog("SYS: ✅ Turno terminado.");
+    }
 
-    const {buf, ct} = await VX_ttsAudio(reply);
-    await VX_playAudioAndWait(buf, ct);
+    // =========================================================
+    // EVENTS
+    // =========================================================
+    $("btnMics").onclick = async ()=>{
+      try{ await refreshMics(); }
+      catch(e){ addLog("SYS: ERROR al listar mics."); }
+    };
 
-    if(callActive) setState("listening","Siguiente turno...");
-    else setState("idle","Listo");
-  }catch(e){
-    console.error(e);
-    addLog("SYS: ERROR: " + (e?.message || e));
-    setState("idle","Error");
-  }
-};
+    $("micSelect").onchange = async ()=>{
+      try{
+        await startMeter($("micSelect").value || null);
+      }catch(e){
+        addLog("SYS: ERROR al iniciar mic. Revisa permisos.");
+      }
+    };
 
-// Init
-(async ()=>{
-  try{
-    await refreshMics();
-    VX_setAvatarState("idle");
-    setState("idle","");
-    addLog("SYS: OK. Listo para llamada.");
-  }catch(e){
-    addLog("SYS: ERROR init: " + (e?.message || e));
-  }
-})();
-</script>
+    $("btnCall").onclick = async ()=>{
+      if(!callActive){
+        setCallUI(true);
+        addLog("SYS: 📞 Llamada iniciada.");
+        // empieza tu loop real aquí
+        await demoOneTurn("Is this the local conversation?");
+      }else{
+        setCallUI(false);
+        window.VX_setAvatarState("idle");
+        addLog("SYS: 📴 Llamada detenida.");
+      }
+    };
+
+    $("btnClear").onclick = ()=>{
+      logEl.textContent = "";
+      addLog("SYS: UI lista.");
+    };
+
+    $("btnText").onclick = async ()=>{
+      const t = $("textIn").value.trim() || "Hello";
+      await demoOneTurn(t);
+    };
+
+    $("btnSendText").onclick = async ()=>{
+      const t = $("textIn").value.trim();
+      if(!t){ addLog("SYS: Escribe algo."); return; }
+      await demoOneTurn(t);
+    };
+
+    // Init
+    (async ()=>{
+      addLog("SYS: UI lista.");
+      try{
+        await refreshMics();
+      }catch(e){
+        addLog("SYS: (Aviso) No se pudieron listar mics todavía.");
+      }
+    })();
+  </script>
 </body>
 </html>
+
