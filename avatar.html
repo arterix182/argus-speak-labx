@@ -133,13 +133,27 @@
 
     .row2{display:flex; gap:10px; align-items:center; margin-top:10px;}
     select{
-      width:100%;
-      padding:12px 12px;
-      border-radius:14px;
-      border:1px solid var(--br);
-      background:#071328;
-      color:var(--txt);
-      outline:none;
+  width:100%;
+  padding:12px 12px;
+  border-radius:14px;
+  border:1px solid #223a62;
+  background:#071328;
+  color:#eaf2ff;
+  outline:none;
+}
+
+/* CLAVE: opciones visibles */
+select option{
+  background:#071328;
+  color:#eaf2ff;
+}
+
+/* En algunos Windows/Chrome ayuda mucho */
+select:focus{
+  border-color:#2a4c83;
+  box-shadow:0 0 0 3px rgba(42,76,131,.35);
+}
+
     }
     .meterWrap{
       margin-top:12px;
