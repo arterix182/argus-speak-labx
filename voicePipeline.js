@@ -1,12 +1,10 @@
 (function(){
-  // Helpers
   async function jsonOrThrow(r){
     const txt = await r.text();
     try { return JSON.parse(txt); }
     catch { throw new Error("Non-JSON response: " + txt.slice(0,120)); }
   }
 
-  // CHAT (JSON)
   async function VX_chat(userText, mode){
     const clean = (userText || "").trim();
     if(!clean) throw new Error("Empty text");
@@ -20,25 +18,18 @@
     return (j.reply || "").trim();
   }
 
-  // STT (multipart/form-data)  ✅ evita tu error de Content-Type
   async function VX_transcribeAudio(blob){
     if(!blob || !blob.size) throw new Error("Empty audio blob");
     const fd = new FormData();
     fd.append("file", blob, "audio.webm");
     fd.append("mimeType", blob.type || "audio/webm");
 
-    const r = await fetch("/api/stt", {
-      method:"POST",
-      body: fd
-      // NO pongas Content-Type: el browser pone boundary solo
-    });
-
+    const r = await fetch("/api/stt", { method:"POST", body: fd });
     const j = await jsonOrThrow(r);
     if(!r.ok) throw new Error(j.error || "stt failed");
     return (j.text || "").trim();
   }
 
-  // TTS (JSON -> audio/mpeg)
   async function VX_tts(text){
     const clean = (text || "").trim();
     if(!clean) throw new Error("Empty TTS text");
@@ -54,10 +45,8 @@
     return await r.arrayBuffer();
   }
 
-  // Play audio + “lip-ish” (analizador)
   let audioCtx = null;
   async function VX_ttsSpeak(text){
-    // unlock en gesto
     if(!audioCtx){
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
@@ -72,7 +61,6 @@
     const a = new Audio(url);
     a.crossOrigin = "anonymous";
 
-    // analyzer para “mouth power”
     const src = audioCtx.createMediaElementSource(a);
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = 1024;
@@ -84,7 +72,6 @@
 
     const tick = ()=>{
       analyser.getByteTimeDomainData(data);
-      // RMS simple
       let sum=0;
       for(let i=0;i<data.length;i++){
         const v = (data[i]-128)/128;
@@ -108,7 +95,6 @@
     URL.revokeObjectURL(url);
   }
 
-  // Export global
   window.VX_chat = VX_chat;
   window.VX_transcribeAudio = VX_transcribeAudio;
   window.VX_ttsSpeak = VX_ttsSpeak;
