@@ -1,78 +1,91 @@
-/* sw.js — Blindado: NO cachea ni intercepta JS/CSS para evitar 404 viejos */
+/* sw.js
+   ✅ NO cachea: avatar.html + voiceRecorder.js + voicePipeline.js
+   ✅ Cachea assets estáticos (imágenes/mp4/css/etc)
+*/
 
-const CACHE_VERSION = "v18";
-const CACHE_NAME = `app-cache-${CACHE_VERSION}`;
+const CACHE_NAME = "argus-beta-static-v7";
 
-const PRECACHE_URLS = [
-  "/",
-  "/index.html",
-  "/manifest.json",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-];
+// Archivos que JAMÁS deben cachearse (para evitar bugs eternos)
+const NO_CACHE_PATHS = new Set([
+  "/avatar.html",
+  "/js/voiceRecorder.js",
+  "/js/voicePipeline.js",
+]);
 
 self.addEventListener("install", (event) => {
-  event.waitUntil((async () => {
-    const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(PRECACHE_URLS);
-    await self.skipWaiting();
-  })());
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(
-      keys
-        .filter((k) => k.startsWith("app-cache-") && k !== CACHE_NAME)
-        .map((k) => caches.delete(k))
-    );
+    await Promise.all(keys.map(k => (k !== CACHE_NAME ? caches.delete(k) : null)));
     await self.clients.claim();
   })());
 });
 
+// Estrategia:
+// - NO_CACHE_PATHS => network only (no-store)
+// - HTML/JS => network-first
+// - assets => cache-first
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  if (req.method !== "GET") return;
+  // Solo mismo origen
+  if (url.origin !== location.origin) return;
 
-  // ✅ NO interceptar JS/CSS
-  if (
-    url.pathname.startsWith("/js/") ||
-    url.pathname.endsWith(".js") ||
-    url.pathname.endsWith(".css")
-  ) {
+  // Nunca cachear críticos
+  if (NO_CACHE_PATHS.has(url.pathname)) {
+    event.respondWith(fetch(req, { cache: "no-store" }));
     return;
   }
 
-  // ✅ No interceptar API
-  if (url.pathname.startsWith("/api/")) return;
+  const isHTML = req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html");
+  const isJS = url.pathname.endsWith(".js");
+  const isAsset =
+    url.pathname.includes("/assets/") ||
+    url.pathname.endsWith(".mp4") ||
+    url.pathname.endsWith(".png") ||
+    url.pathname.endsWith(".jpg") ||
+    url.pathname.endsWith(".jpeg") ||
+    url.pathname.endsWith(".webp") ||
+    url.pathname.endsWith(".svg") ||
+    url.pathname.endsWith(".css");
 
-  // ✅ Navegación: network-first con fallback
-  if (req.mode === "navigate") {
+  // HTML/JS: network-first
+  if (isHTML || isJS) {
     event.respondWith((async () => {
       try {
-        const fresh = await fetch(req);
-        const cache = await caches.open(CACHE_NAME);
-        cache.put(req, fresh.clone());
+        const fresh = await fetch(req, { cache: "no-store" });
+        // cache opcional para js (pero no los críticos)
+        const c = await caches.open(CACHE_NAME);
+        c.put(req, fresh.clone());
         return fresh;
-      } catch (e) {
+      } catch {
         const cached = await caches.match(req);
-        return cached || caches.match("/index.html");
+        return cached || new Response("Offline", { status: 503 });
       }
     })());
     return;
   }
 
-  // ✅ Assets: cache-first
-  event.respondWith((async () => {
-    const cached = await caches.match(req);
-    if (cached) return cached;
+  // Assets: cache-first
+  if (isAsset) {
+    event.respondWith((async () => {
+      const cached = await caches.match(req);
+      if (cached) return cached;
+      const fresh = await fetch(req);
+      const c = await caches.open(CACHE_NAME);
+      c.put(req, fresh.clone());
+      return fresh;
+    })());
+    return;
+  }
 
-    const fresh = await fetch(req);
-    const cache = await caches.open(CACHE_NAME);
-    cache.put(req, fresh.clone());
-    return fresh;
+  // Default: network-first light
+  event.respondWith((async () => {
+    try { return await fetch(req); }
+    catch { return (await caches.match(req)) || new Response("Offline", { status: 503 }); }
   })());
 });
