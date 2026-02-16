@@ -32,9 +32,7 @@
       border-radius:24px;
       box-shadow:var(--shadow);
     }
-    .title{
-      display:flex; gap:12px; align-items:center;
-    }
+    .title{ display:flex; gap:12px; align-items:center; }
     .badgeMic{
       width:40px; height:40px; border-radius:14px;
       display:grid; place-items:center;
@@ -77,7 +75,8 @@
       align-items:center;
       justify-content:center;
     }
-    .avatarBox video{
+    .avatarBox video,
+    .avatarBox img{
       width:100%;
       height:100%;
       object-fit:cover;
@@ -231,8 +230,14 @@
     <div class="card">
       <div class="avatarBox">
         <span id="stateChip" class="stateChip">idle</span>
+
+        <!-- Video principal -->
         <video id="avatarVideo" autoplay muted playsinline loop></video>
-        <div id="missingBox" class="missing">Falta avatar_*.mp4 en /assets</div>
+
+        <!-- Fallback si no existen mp4 -->
+        <img id="avatarImg" alt="ARGUS Avatar" style="display:none;" />
+
+        <div id="missingBox" class="missing">Faltan videos avatar_*.mp4 en /assets. Usando imagen fallback.</div>
       </div>
 
       <div class="btnRow">
@@ -287,9 +292,13 @@
   </div>
 </div>
 
-<!-- JS (orden IMPORTA: pipeline primero, recorder después) -->
-<script src="/js/voicePipeline.js?v=1"></script>
-<script src="/js/voiceRecorder.js?v=1"></script>
+<!-- JS
+     IMPORTANTE:
+     En tu rama BETA los archivos están en RAÍZ, no en /js/.
+     Por eso usamos /voicePipeline.js y /voiceRecorder.js.
+-->
+<script src="/voicePipeline.js?v=18"></script>
+<script src="/voiceRecorder.js?v=18"></script>
 
 <script>
   // ===== UI helpers =====
@@ -310,9 +319,14 @@
 
   // Avatar
   const avatarVideo = document.getElementById("avatarVideo");
+  const avatarImg = document.getElementById("avatarImg");
   const stateChip = document.getElementById("stateChip");
   const missingBox = document.getElementById("missingBox");
 
+  // Si NO tienes mp4, al menos muestra esto:
+  const AVATAR_FALLBACK_IMG = "/avatar.png";
+
+  // Si más adelante subes videos, estos son los paths:
   const AVATAR = {
     idle: "/assets/avatar_idle.mp4",
     listening: "/assets/avatar_listening.mp4",
@@ -339,26 +353,33 @@
     if (avatarVideo.dataset.src === src) return;
     avatarVideo.dataset.src = src;
 
-    // Probe: si no existe, muestra alerta "Falta avatar_*.mp4"
     try{
+      // Probe: si el mp4 no existe, nos vamos a fallback
       const r = await fetch(src, { method:"HEAD", cache:"no-store" });
       if(!r.ok) throw new Error("missing");
+
+      // Video existe ✅
       missingBox.style.display = "none";
+      avatarImg.style.display = "none";
+
       avatarVideo.src = src;
-      // speaking NO loop si quieres; aquí lo dejamos loop para continuidad visual
       avatarVideo.loop = true;
       await avatarVideo.play().catch(()=>{});
     }catch(e){
+      // Video NO existe ❌ -> fallback a imagen
       missingBox.style.display = "block";
+
+      avatarVideo.pause?.();
       avatarVideo.removeAttribute("src");
       avatarVideo.load();
+
+      avatarImg.src = AVATAR_FALLBACK_IMG;
+      avatarImg.style.display = "block";
     }
   }
 
   // ===== Bind to recorder callbacks =====
-  // voiceRecorder.js dispara estos eventos
   window.VX_onState = async (s) => {
-    // s: idle/listening/thinking/speaking
     if (s === "listening") setStatus("listening", "Escuchando… (silencio = stop)");
     if (s === "thinking")  setStatus("thinking", "Procesando…");
     if (s === "speaking")  setStatus("speaking", "Respondiendo…");
@@ -368,6 +389,48 @@
   };
 
   window.VX_onLog = (m) => addLog(m);
+
+  // ===== Mic selector: llenar select con devices reales =====
+  async function fillMicSelect() {
+    if (typeof window.VX_refreshMics !== "function") {
+      addLog("SYS: ERROR: No existe VX_refreshMics (no cargó voiceRecorder.js).");
+      micSelect.innerHTML = `<option value="">ERROR: No cargó voiceRecorder.js</option>`;
+      return;
+    }
+
+    const res = await window.VX_refreshMics();
+    if (!res || !res.ok) {
+      addLog("SYS: ❌ No se pudo listar micrófonos: " + (res?.error || "unknown"));
+      micSelect.innerHTML = `<option value="">No se pudo listar micrófonos</option>`;
+      return;
+    }
+
+    const mics = res.mics || [];
+    micSelect.innerHTML = "";
+
+    const optDefault = document.createElement("option");
+    optDefault.value = "";
+    optDefault.textContent = "Micrófono (default)";
+    micSelect.appendChild(optDefault);
+
+    for (const m of mics) {
+      const opt = document.createElement("option");
+      opt.value = m.deviceId;
+      opt.textContent = m.label || "Micrófono";
+      micSelect.appendChild(opt);
+    }
+
+    addLog(`SYS: 🎙️ Mics cargados: ${mics.length}`);
+  }
+
+  btnRefreshMics.onclick = fillMicSelect;
+
+  micSelect.addEventListener("change", () => {
+    const id = micSelect.value;
+    localStorage.setItem("VX_MIC", id);
+    if (window.VX_setMic) window.VX_setMic(id);
+    addLog("SYS: Mic seleccionado.");
+  });
 
   // ===== Call button =====
   let callActive = false;
@@ -379,20 +442,22 @@
   }
 
   btnCall.onclick = async () => {
-    // Asegura audio desbloqueado (autoplay policy)
     if (window.VX_unlockAudio) await window.VX_unlockAudio();
 
     if (!callActive){
-      // inicia llamada (auto-stop por silencio)
       const fn = window.VX_callStart;
       if (typeof fn !== "function"){
-        alert("No cargó VX_callStart. Revisa que /js/voiceRecorder.js exista y se esté cargando.");
+        alert("No cargó VX_callStart. Revisa que voiceRecorder.js se esté cargando.");
         return;
       }
+
+      // ✅ Usa el mic guardado
+      const selectedMic = localStorage.getItem("VX_MIC") || "";
+
       paintCall(true);
-      await fn().catch(err=>{
+      await fn(selectedMic).catch(err=>{
         paintCall(false);
-        alert("Falló voz/IA: " + err.message);
+        alert("Falló voz/IA: " + (err?.message || err));
       });
     } else {
       const fn = window.VX_callStop;
@@ -407,7 +472,7 @@
       await setAvatarState("thinking");
       addLog("SYS: CHAT (texto)...");
       const mode = modeSelect.value;
-      const reply = await window.VX_chatReply(textInput.value || "Hello, test.", { mode });
+      const reply = await window.VX_chatReply((textInput.value || "Hello, test."), { mode });
       addLog("BOT: " + reply);
       await setAvatarState("speaking");
       addLog("SYS: TTS...");
@@ -416,7 +481,7 @@
       await setAvatarState("idle");
     }catch(e){
       await setAvatarState("idle");
-      alert("Falló texto: " + e.message);
+      alert("Falló texto: " + (e?.message || e));
     }
   }
 
@@ -433,23 +498,17 @@
     addLog("SYS: Memoria borrada.");
   };
 
-  // ===== Mic selector =====
-  btnRefreshMics.onclick = async () => {
-    if (window.VX_refreshMics) await window.VX_refreshMics();
-  };
-
-  micSelect.addEventListener("change", () => {
-    const id = micSelect.value;
-    localStorage.setItem("VX_MIC", id);
-    if (window.VX_setMic) window.VX_setMic(id);
-    addLog("SYS: Mic seleccionado.");
-  });
-
   // ===== Init =====
   (async ()=>{
     addLog("SYS: UI lista.");
+
+    // Avatar inicial (video si existe, si no imagen)
     await setAvatarState("idle");
-    if (window.VX_refreshMics) await window.VX_refreshMics();
+
+    // Cargar mics en select
+    await fillMicSelect();
+
+    // Aplicar mic guardado (si aún existe)
     const saved = localStorage.getItem("VX_MIC");
     if (saved) {
       micSelect.value = saved;
@@ -457,13 +516,14 @@
     }
   })();
 
-  // Exponer para debug en consola
+  // Debug helpers
   window.VX_addLog = addLog;
   window.VX_setAvatarState = setAvatarState;
 </script>
 
 </body>
 </html>
+
 
 
 
