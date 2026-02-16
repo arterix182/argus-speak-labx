@@ -18,17 +18,19 @@
   let callActive = false;
   let busyTurn = false;
 
-  // ✅ Ajustes de silencio (REDUCEN la espera post-habla)
-  // Antes: 800ms (muy alto). Ahora: 420ms (se siente “inmediato” sin cortar palabras).
+  // ✅ Ajustes de silencio
   let SILENCE_HOLD_MS = 420;      // silencio necesario para cortar
   let START_THRESHOLD = 0.020;    // umbral para “ya está hablando”
   let SILENCE_THRESHOLD = 0.012;  // umbral para considerar silencio
 
   // ✅ detector más rápido
-  const SILENCE_TICK_MS = 50;     // antes 80ms
+  const SILENCE_TICK_MS = 50;
 
-  // ✅ chunks más frecuentes (mejor “flush” al final)
-  const TIMESLICE_MS = 250;       // antes 200ms
+  // ✅ chunks más frecuentes
+  const TIMESLICE_MS = 250;
+
+  // ✅ keep-alive (evita cold start durante llamada)
+  let keepAliveTimer = null;
 
   // callbacks desde index
   let onUserText = ()=>{};
@@ -105,7 +107,6 @@
     return Math.sqrt(sum/data.length);
   }
 
-  // ✅ Cuando detecta silencio sostenido, hace requestData() y luego stop()
   function detectSilenceAndStop(getRms){
     let startedTalking = false;
     let silenceSince = null;
@@ -131,7 +132,6 @@
             // ✅ FLUSH: fuerza el último chunk ANTES de parar
             try{ if(mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.requestData(); }catch{}
 
-            // pequeño delay para que el chunk “caiga” (reduce blobs vacíos)
             setTimeout(()=>{
               try{ if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop(); }catch{}
               resolve("silence");
@@ -151,6 +151,20 @@
     try { fetch("/api/tts", { method:"GET", cache:"no-store" }).catch(()=>{}); } catch {}
   }
 
+  function startKeepAlive(){
+    stopKeepAlive();
+    // Cada 2 min, mantiene vivas las functions mientras la llamada esté activa
+    keepAliveTimer = setInterval(()=>{
+      if(!callActive) return;
+      warmUpApis();
+    }, 120000);
+  }
+
+  function stopKeepAlive(){
+    try{ if(keepAliveTimer) clearInterval(keepAliveTimer); }catch{}
+    keepAliveTimer = null;
+  }
+
   async function recordOneTurn(){
     if(!callActive) return;
     if(busyTurn) return;
@@ -160,7 +174,7 @@
 
     const chunks = [];
 
-    // ✅ escoger mimeType soportado (evita blobs vacíos en algunos devices)
+    // ✅ escoger mimeType soportado
     const preferred = ["audio/webm;codecs=opus", "audio/webm"];
     const mimeType = preferred.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "audio/webm";
 
@@ -180,27 +194,38 @@
 
     const blob = new Blob(chunks, { type: mimeType });
 
+    // ✅ Medición de tiempos (para encontrar los 10 segundos)
+    const tAll0 = performance.now();
+    const T = { stt: 0, chat: 0, tts: 0, total: 0, blobKb: Math.round((blob.size || 0)/1024) };
+
     try{
       emitState("thinking");
 
-      // ✅ micro-feedback instantáneo: al menos “reacciona” ya
-      // (si no lo quieres, bórralo)
-      // onBotText("…");
-
       // STT
+      const tStt0 = performance.now();
       const userText = await window.VX_transcribeAudio(blob);
+      T.stt = Math.round(performance.now() - tStt0);
       onUserText(userText);
 
       // CHAT
+      const tChat0 = performance.now();
       const reply = await window.VX_chatReply(userText);
+      T.chat = Math.round(performance.now() - tChat0);
       onBotText(reply);
 
       // TTS
       emitState("speaking");
+      const tTts0 = performance.now();
       await window.VX_ttsSpeak(reply);
+      T.tts = Math.round(performance.now() - tTts0);
+
+      T.total = Math.round(performance.now() - tAll0);
+      console.log("⏱️ TURN ms:", { ...T, chars: (reply || "").length });
 
       emitState("idle");
     }catch(err){
+      T.total = Math.round(performance.now() - tAll0);
+      console.log("⏱️ TURN ms (failed):", T);
       emitState("idle");
       throw err;
     }finally{
@@ -212,11 +237,11 @@
     while(callActive){
       try{
         await recordOneTurn();
-        await new Promise(r=>setTimeout(r, 80)); // antes 120
+        await new Promise(r=>setTimeout(r, 80));
       }catch(e){
         console.error(e);
         if(typeof onBotText === "function") onBotText("⚠️ Error: " + (e?.message || e));
-        await new Promise(r=>setTimeout(r, 250)); // antes 350
+        await new Promise(r=>setTimeout(r, 250));
       }
     }
   }
@@ -239,6 +264,7 @@
 
     // ✅ evita cold start
     warmUpApis();
+    startKeepAlive();
 
     loopTurns(); // no await
   }
@@ -247,9 +273,10 @@
     callActive = false;
     busyTurn = false;
 
+    stopKeepAlive();
+
     try{
       if(mediaRecorder && mediaRecorder.state === "recording"){
-        // ✅ flush final si paras manualmente
         try{ mediaRecorder.requestData(); }catch{}
         mediaRecorder.stop();
       }
