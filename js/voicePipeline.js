@@ -1,12 +1,16 @@
 // js/voicePipeline.js (STT multipart OK)
 (() => {
   "use strict";
-
   async function jsonOrThrow(r) {
     const txt = await r.text();
     let j = {};
-    try { j = JSON.parse(txt); } catch { j = { error: txt }; }
-    if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    try { j = txt ? JSON.parse(txt) : {}; }
+    catch { j = { error: txt }; }
+
+    if (!r.ok) {
+      const msg = (j && (j.error || j.message)) ? (j.error || j.message) : (txt || ("HTTP " + r.status));
+      throw new Error(`STT ${r.status}: ${msg}`);
+    }
     return j;
   }
 
