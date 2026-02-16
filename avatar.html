@@ -10,9 +10,8 @@
       --card:#0b1830cc; --card2:#0b1830a8;
       --txt:#eaf2ff; --mut:#9fb4d6;
       --br:#223a62; --br2:#1a2d4d;
-      --ok:#20d36b; --warn:#ffcc00;
+      --ok:#20d36b;
       --shadow: 0 16px 60px rgba(0,0,0,.55);
-      --r:18px;
     }
     *{box-sizing:border-box; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;}
     body{
@@ -32,7 +31,7 @@
       border-radius:24px;
       box-shadow:var(--shadow);
     }
-    .title{ display:flex; gap:12px; align-items:center; }
+    .title{display:flex; gap:12px; align-items:center;}
     .badgeMic{
       width:40px; height:40px; border-radius:14px;
       display:grid; place-items:center;
@@ -49,7 +48,6 @@
       color:#d9e7ff; font-size:13px;
       white-space:nowrap;
     }
-
     .grid{
       margin-top:18px;
       display:grid;
@@ -63,7 +61,6 @@
       box-shadow:var(--shadow);
       padding:16px;
     }
-
     .avatarBox{
       position:relative;
       border-radius:18px;
@@ -83,14 +80,11 @@
       display:block;
     }
     .stateChip{
-      position:absolute;
-      top:10px; left:10px;
-      padding:6px 10px;
-      border-radius:999px;
+      position:absolute; top:10px; left:10px;
+      padding:6px 10px; border-radius:999px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(0,0,0,.28);
-      font-size:12px;
-      color:#eaf2ff;
+      font-size:12px; color:#eaf2ff;
       text-transform:lowercase;
     }
     .missing{
@@ -103,7 +97,6 @@
       font-size:13px;
       display:none;
     }
-
     .btnRow{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;}
     .btn{
       padding:12px 14px;
@@ -119,10 +112,6 @@
     .btn.primary{
       border-color:#2a4c83;
       background:linear-gradient(180deg,#1b3f78,#0a1d3b);
-    }
-    .btn.danger{
-      border-color:#6b2a3a;
-      background:linear-gradient(180deg,#3a1120,#1b0710);
     }
     .btn.small{padding:10px 12px; font-weight:700;}
     .led{
@@ -143,84 +132,8 @@
       color:var(--txt);
       outline:none;
     }
-
-    /* ===== Custom mic dropdown (a prueba de Windows/Chrome) ===== */
-    .micWrap{ position:relative; width:100%; }
-    .micBtn{
-      width:100%;
-      padding:12px 12px;
-      border-radius:14px;
-      border:1px solid var(--br);
-      background:#071328;
-      color:var(--txt);
-      outline:none;
-      cursor:pointer;
-      text-align:left;
-      font-weight:700;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-    }
-    .micBtn .muter{ color:var(--mut); font-weight:600; }
-    .micMenu{
-      position:absolute;
-      top:calc(100% + 8px);
-      left:0; right:0;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.10);
-      background:#061327;
-      box-shadow:var(--shadow);
-      max-height:260px;
-      overflow:auto;
-      z-index:9999;
-      padding:6px;
-    }
-    .micMenu.hidden{ display:none; }
-    .micItem{
-      padding:10px 10px;
-      border-radius:12px;
-      cursor:pointer;
-      border:1px solid transparent;
-      display:flex;
-      flex-direction:column;
-      gap:2px;
-    }
-    .micItem:hover{
-      background:rgba(255,255,255,.06);
-      border-color:rgba(255,255,255,.10);
-    }
-    .micItem .name{ font-weight:800; color:var(--txt); font-size:13px; }
-    .micItem .subt{ font-weight:600; color:var(--mut); font-size:11px; }
-    .micItem.active{
-      background:rgba(32,211,107,.10);
-      border-color:rgba(32,211,107,.25);
-    }
-
-    .meterWrap{
-      margin-top:12px;
-      display:flex; align-items:center; gap:10px;
-    }
-    .meter{
-      flex:1;
-      height:10px;
-      border-radius:999px;
-      background:#071328;
-      border:1px solid rgba(255,255,255,.08);
-      overflow:hidden;
-    }
-    .meter > i{
-      display:block;
-      height:100%;
-      width:0%;
-      background:linear-gradient(90deg, #2de06d, #ffd24d, #ff4d6d);
-    }
     .mut{color:var(--mut); font-size:12px;}
-
-    .rightTop{
-      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
-      margin-bottom:10px;
-    }
+    .rightTop{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;}
     .tag{
       padding:6px 10px;
       border-radius:999px;
@@ -243,10 +156,7 @@
       line-height:1.45;
       white-space:pre-wrap;
     }
-    .inputRow{
-      margin-top:12px;
-      display:flex; gap:10px;
-    }
+    .inputRow{margin-top:12px; display:flex; gap:10px;}
     .inputRow input{
       flex:1;
       padding:12px 12px;
@@ -257,9 +167,7 @@
       outline:none;
     }
     .hint{margin-top:10px; color:var(--mut); font-size:12px;}
-    @media (max-width: 980px){
-      .grid{grid-template-columns:1fr;}
-    }
+    @media (max-width: 980px){ .grid{grid-template-columns:1fr;} }
   </style>
 </head>
 
@@ -285,10 +193,8 @@
     <div class="card">
       <div class="avatarBox">
         <span id="stateChip" class="stateChip">idle</span>
-
         <video id="avatarVideo" autoplay muted playsinline loop></video>
         <img id="avatarImg" alt="ARGUS Avatar" style="display:none;" />
-
         <div id="missingBox" class="missing">Faltan videos avatar_*.mp4 en /assets. Usando imagen fallback.</div>
       </div>
 
@@ -298,7 +204,7 @@
         </button>
         <button id="btnTestText" class="btn small">Probar Chat (texto)</button>
         <button id="btnClear" class="btn small">Limpiar</button>
-        <button id="btnForget" class="btn small danger">Borrar memoria</button>
+        <button id="btnForget" class="btn small">Borrar memoria</button>
       </div>
 
       <div class="row2">
@@ -307,29 +213,10 @@
           <option value="friendly">Friendly</option>
           <option value="strict">Strict</option>
         </select>
-
-        <!-- Mic dropdown custom -->
-        <div class="micWrap" id="micWrap">
-          <button class="micBtn" id="micBtn" type="button">
-            <span id="micBtnText">Micrófono: <span class="muter">(default)</span></span>
-            <span class="muter">▾</span>
-          </button>
-          <div class="micMenu hidden" id="micMenu"></div>
-        </div>
-      </div>
-
-      <div class="meterWrap">
-        <div class="meter"><i id="meterFill"></i></div>
-        <div class="mut">Nivel</div>
-      </div>
-
-      <div class="btnRow" style="margin-top:10px">
-        <button id="btnRefreshMics" class="btn small">Actualizar mics</button>
-        <button id="btnResetMic" class="btn small danger">Reset mic</button>
       </div>
 
       <div class="hint">
-        Tip: si estás en lugar ruidoso, habla más cerca del mic. Si no detecta voz, sube el umbral en recorder.
+        Micrófono: **automático (default del dispositivo)**. Sin selección, sin dramas.
       </div>
     </div>
 
@@ -351,12 +238,11 @@
   </div>
 </div>
 
-<!-- JS (orden IMPORTA: pipeline primero, recorder después) -->
-<script src="/js/voicePipeline.js?v=311"></script>
-<script src="/js/voiceRecorder.js?v=311"></script>
+<!-- JS (orden IMPORTA) -->
+<script src="/js/voicePipeline.js?v=400"></script>
+<script src="/js/voiceRecorder.js?v=400"></script>
 
 <script>
-  // ===== UI helpers =====
   const logEl = document.getElementById("log");
   const statusTag = document.getElementById("statusTag");
   const statusText = document.getElementById("statusText");
@@ -368,15 +254,7 @@
   const btnTestText = document.getElementById("btnTestText");
   const btnSendText = document.getElementById("btnSendText");
   const textInput = document.getElementById("textInput");
-  const btnRefreshMics = document.getElementById("btnRefreshMics");
-  const btnResetMic = document.getElementById("btnResetMic");
   const modeSelect = document.getElementById("modeSelect");
-
-  // Mic dropdown custom
-  const micWrap = document.getElementById("micWrap");
-  const micBtn = document.getElementById("micBtn");
-  const micBtnText = document.getElementById("micBtnText");
-  const micMenu = document.getElementById("micMenu");
 
   // Avatar
   const avatarVideo = document.getElementById("avatarVideo");
@@ -385,15 +263,12 @@
   const missingBox = document.getElementById("missingBox");
 
   const AVATAR_FALLBACK_IMG = "/avatar.png";
-
   const AVATAR = {
     idle: "/assets/avatar_idle.mp4",
     listening: "/assets/avatar_listening.mp4",
     thinking: "/assets/avatar_thinking.mp4",
     speaking: "/assets/avatar_speaking.mp4",
   };
-
-  let callActive = false;
 
   function addLog(line){
     const t = new Date().toLocaleTimeString();
@@ -425,126 +300,15 @@
       await avatarVideo.play().catch(()=>{});
     }catch(e){
       missingBox.style.display = "block";
-
       avatarVideo.pause?.();
       avatarVideo.removeAttribute("src");
       avatarVideo.load();
-
       avatarImg.src = AVATAR_FALLBACK_IMG;
       avatarImg.style.display = "block";
     }
   }
 
-  // ===== Mic dropdown logic =====
-  function openMicMenu(){
-    micMenu.classList.remove("hidden");
-  }
-  function closeMicMenu(){
-    micMenu.classList.add("hidden");
-  }
-  function toggleMicMenu(){
-    micMenu.classList.contains("hidden") ? openMicMenu() : closeMicMenu();
-  }
-
-  function setMicUI(deviceId, label){
-    if (!deviceId) {
-      micBtnText.innerHTML = `Micrófono: <span class="muter">(default)</span>`;
-    } else {
-      micBtnText.textContent = `Micrófono: ${label || "Seleccionado"}`;
-    }
-  }
-
-  function renderMicMenu(mics){
-    const saved = localStorage.getItem("VX_MIC") || "";
-
-    micMenu.innerHTML = "";
-
-    // Default item
-    const def = document.createElement("div");
-    def.className = "micItem" + (saved === "" ? " active" : "");
-    def.innerHTML = `<div class="name">Micrófono (default)</div><div class="subt">Deja que el navegador elija</div>`;
-    def.onclick = () => {
-      localStorage.setItem("VX_MIC", "");
-      if (window.VX_setMic) window.VX_setMic("");
-      setMicUI("", "");
-      addLog("SYS: Mic seleccionado: default");
-      closeMicMenu();
-      // re-render active state
-      renderMicMenu(mics);
-    };
-    micMenu.appendChild(def);
-
-    // Real mics
-    mics.forEach((m) => {
-      const item = document.createElement("div");
-      const active = (saved && m.deviceId === saved);
-      item.className = "micItem" + (active ? " active" : "");
-      item.innerHTML = `
-        <div class="name">${(m.label || "Micrófono")}</div>
-        <div class="subt">ID: ${m.deviceId.slice(0, 14)}…</div>
-      `;
-      item.onclick = () => {
-        localStorage.setItem("VX_MIC", m.deviceId);
-        if (window.VX_setMic) window.VX_setMic(m.deviceId);
-        setMicUI(m.deviceId, m.label);
-        addLog("SYS: Mic seleccionado: " + (m.label || "Micrófono"));
-        closeMicMenu();
-        renderMicMenu(mics);
-      };
-      micMenu.appendChild(item);
-    });
-  }
-
-  async function loadMics(){
-    if (typeof window.VX_refreshMics !== "function"){
-      addLog("SYS: ERROR: No existe VX_refreshMics (voiceRecorder.js no cargó).");
-      setMicUI("", "");
-      return [];
-    }
-
-    const res = await window.VX_refreshMics();
-    if (!res || !res.ok){
-      addLog("SYS: ❌ No se pudo listar micrófonos: " + (res?.error || "unknown"));
-      return [];
-    }
-
-    const mics = res.mics || [];
-    addLog(`SYS: 🎙️ Mics detectados: ${mics.length}`);
-
-    renderMicMenu(mics);
-
-    // Aplica guardado al UI
-    const saved = localStorage.getItem("VX_MIC") || "";
-    if (!saved) {
-      setMicUI("", "");
-    } else {
-      const found = mics.find(x => x.deviceId === saved);
-      setMicUI(saved, found?.label || "Mic seleccionado");
-    }
-
-    return mics;
-  }
-
-  micBtn.onclick = (e) => {
-    e.preventDefault();
-    toggleMicMenu();
-  };
-
-  // Cerrar si clic afuera
-  document.addEventListener("click", (e) => {
-    if (!micWrap.contains(e.target)) closeMicMenu();
-  });
-
-  btnRefreshMics.onclick = async () => { await loadMics(); };
-
-  btnResetMic.onclick = () => {
-    localStorage.removeItem("VX_MIC");
-    if (window.VX_setMic) window.VX_setMic("");
-    setMicUI("", "");
-    addLog("SYS: VX_MIC borrado (default).");
-  };
-
-  // ===== Bind callbacks =====
+  // Callbacks desde recorder/pipeline
   window.VX_onState = async (s) => {
     if (s === "listening") setStatus("listening", "Escuchando… (silencio = stop)");
     if (s === "thinking")  setStatus("thinking", "Procesando…");
@@ -552,10 +316,10 @@
     if (s === "idle")      setStatus("idle", "Llamada detenida");
     await setAvatarState(s);
   };
-
   window.VX_onLog = (m) => addLog(m);
 
-  // ===== Call button =====
+  // Botón llamada
+  let callActive = false;
   function paintCall(active){
     callActive = active;
     callLed.classList.toggle("on", active);
@@ -571,14 +335,14 @@
         alert("No cargó VX_callStart. Revisa /js/voiceRecorder.js");
         return;
       }
-
-      const selectedMic = (localStorage.getItem("VX_MIC") || "").trim();
-
       paintCall(true);
-      await fn(selectedMic).catch(err=>{
+
+      // ✅ SIN deviceId: siempre mic default del dispositivo
+      await fn().catch(err=>{
         paintCall(false);
         alert("Falló voz/IA: " + (err?.message || err));
       });
+
     } else {
       const fn = window.VX_callStop;
       if (typeof fn === "function") await fn().catch(()=>{});
@@ -586,7 +350,7 @@
     }
   };
 
-  // ===== Text test =====
+  // Text test
   async function runTextTurn(){
     try{
       await setAvatarState("thinking");
@@ -604,11 +368,9 @@
       alert("Falló texto: " + (e?.message || e));
     }
   }
-
   btnTestText.onclick = runTextTurn;
   btnSendText.onclick = runTextTurn;
 
-  // ===== Clear / Forget =====
   btnClear.onclick = () => {
     logEl.textContent = "";
     addLog("SYS: Log limpio.");
@@ -618,30 +380,13 @@
     addLog("SYS: Memoria borrada.");
   };
 
-  // ===== Init =====
   (async ()=>{
     addLog("SYS: UI lista.");
+    // Limpieza: ya no usamos VX_MIC
+    localStorage.removeItem("VX_MIC");
     await setAvatarState("idle");
-
-    // Carga mics y pinta menú
-    await loadMics();
-
-    // Aplica guardado al recorder si existe
-    const saved = (localStorage.getItem("VX_MIC") || "").trim();
-    if (window.VX_setMic) window.VX_setMic(saved);
   })();
-
-  // Debug helpers
-  window.VX_addLog = addLog;
-  window.VX_setAvatarState = setAvatarState;
 </script>
 
 </body>
 </html>
-
-
-
-
-
-
-
