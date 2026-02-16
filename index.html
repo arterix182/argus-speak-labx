@@ -49,25 +49,34 @@
 .mouthLayer,.eyesLayer{
   position:absolute; inset:0; pointer-events:none;
   background-image:url("/assets/avatar.webp");
-  background-size:cover; background-position:center; background-repeat:no-repeat;
+
+  /* 🔥 CLAVE: 1:1 exacto con el <img> */
+  background-size: 100% 100%;
+  background-position: 0 0;
+  background-repeat:no-repeat;
+
   transform-origin:50% 50%;
   will-change:transform, filter;
 }
-/* ✅ Recorte aproximado BOCA (ajústalo si tu cara tiene boca en otra zona) */
+
+/* ✅ Recorte aproximado BOCA (ajústalo) */
 .mouthLayer{
   clip-path: polygon(38% 58%, 62% 58%, 66% 74%, 34% 74%);
   transform-origin:50% 66%;
 }
+
 /* ✅ Recorte aproximado OJOS para parpadeo */
 .eyesLayer{
   clip-path: polygon(28% 24%, 72% 24%, 78% 45%, 22% 45%);
   transform-origin:50% 34%;
 }
+
 .eyesLayer.blink{
   transform: scaleY(0.08);
   filter: brightness(0.96);
   transition: transform 90ms ease;
 }
+
   </style>
 </head>
 
