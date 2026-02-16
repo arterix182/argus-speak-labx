@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "formidable": "^3.5.2"
+    "formidable": "^3.5.2",
+    "stripe": "^16.0.0"
   }
 }
