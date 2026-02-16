@@ -112,8 +112,26 @@ function getBoundary(contentType) {
 function getRawBodyBuffer(event) {
   const b = event.body || "";
   if (!b) return Buffer.alloc(0);
-  // En Netlify, multipart suele venir base64-encoded
-  return Buffer.from(b, event.isBase64Encoded ? "base64" : "utf8");
+  // En Netlify, multipart suele venir base64-encoded.
+  // OJO: en algunos casos isBase64Encoded puede venir falso/undefined aunque el body sí sea base64.
+  // Hacemos un fallback: probamos base64 y validamos si aparece el boundary al convertir a latin1.
+
+  if (event.isBase64Encoded) return Buffer.from(b, "base64");
+
+  // Heurística base64: caracteres válidos y longitud múltiplo de 4
+  const looksB64 = /^[A-Za-z0-9+/=\r\n]+$/.test(b) && (b.replace(/\s+/g, "").length % 4 === 0);
+  if (looksB64) {
+    try {
+      const bufB64 = Buffer.from(b, "base64");
+      // Si al decodificar parece multipart (contiene "--"), lo usamos.
+      // No es perfecto, pero evita el 400 por parseo vacío.
+      const s = bufB64.toString("latin1");
+      if (s.includes("\r\n") && s.includes("--")) return bufB64;
+    } catch {}
+  }
+
+  // Fallback texto
+  return Buffer.from(b, "utf8");
 }
 
 function parseMultipart(buf, boundary) {
