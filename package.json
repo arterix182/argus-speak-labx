@@ -1,8 +1,8 @@
 {
-  "name": "arguslab2x",
-  "private": true,
+  "name": "argus-speak-beta",
+  "version": "1.0.0",
+  "type": "module",
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.0",
-    "stripe": "^14.0.0"
+    "formidable": "^3.5.2"
   }
 }
