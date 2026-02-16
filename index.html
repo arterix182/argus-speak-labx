@@ -59,15 +59,17 @@
   will-change:transform, filter;
 }
 
-/* ✅ Recorte aproximado BOCA (ajústalo) */
+/* BOCA (más compacto y centrado) */
 .mouthLayer{
-  clip-path: polygon(38% 58%, 62% 58%, 66% 74%, 34% 74%);
-  transform-origin:50% 66%;
+  /* x: 41–59%, y: 61–73% */
+  clip-path: polygon(41% 61%, 59% 61%, 63% 73%, 37% 73%);
+  transform-origin:50% 67%;
 }
 
-/* ✅ Recorte aproximado OJOS para parpadeo */
+/* OJOS (solo párpados/ojos, menos frente) */
 .eyesLayer{
-  clip-path: polygon(28% 24%, 72% 24%, 78% 45%, 22% 45%);
+  /* x: 30–70%, y: 27–41% */
+  clip-path: polygon(30% 27%, 70% 27%, 76% 41%, 24% 41%);
   transform-origin:50% 34%;
 }
 
@@ -228,8 +230,8 @@ function lipsyncLoop(){
     const rms = __vxSpeaking ? getBotRms() : 0;
 
     // Ajusta sensibilidad (si abre poco, baja base; si abre mucho, sube base)
-    const base = 0.008;
-    const range = 0.040;
+    const base = 0.006;
+    const range = 0.030;
     let amp = (rms - base) / range;
     amp = Math.max(0, Math.min(1, amp));
 
