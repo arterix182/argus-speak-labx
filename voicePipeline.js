@@ -56,7 +56,7 @@
       body: JSON.stringify({
         userText: text,              // ✅ CLAVE CORRECTA
         history: ctx.history || [],
-        mode: ctx.mode || "default",
+        mode: ctx.mode || "call",
       }),
     });
 
@@ -72,21 +72,61 @@
     return String(reply || "").trim();
   };
 
-  // ---------------- TTS (OpenAI /api/tts: voz consistente) ----------------
+    // ---------------- TTS (OpenAI /api/tts: voz consistente + baja latencia) ----------------
   // Requiere netlify/functions/tts.js y OPENAI_API_KEY en Netlify.
+  // Optimización: forzamos tts-1 (más rápido) y recortamos el texto a 1–2 frases para evitar esperas largas.
   window.VX_ttsSpeak = async function (text, opts = {}) {
     const t = String(text || "").trim();
     if (!t) return;
 
+    // ✅ Para VOZ: máximo ~240 caracteres (1–2 frases). El texto completo puede seguir viéndose en pantalla.
+    const tSpeak = t.length > 240 ? (t.slice(0, 240).replace(/\s+\S*$/, "") + "…") : t;
+
     const payload = {
-      text: t,
-      model: opts.model || "tts-1-hd",     // calidad alta y consistente
-      voice: opts.voice || "nova",      // suele percibirse femenina
-      format: opts.format || "mp3",
-      speed: typeof opts.speed === "number" ? opts.speed : 0.85,
+      text: tSpeak,
+      // ✅ Forzamos modelo rápido para conversación
+      model: "tts-1",
+      // ✅ Voz femenina consistente
+      voice: (opts.voice || "nova"),
+      // ✅ Formato ligero
+      format: (opts.format || "mp3"),
+      // ✅ Habla más lento para aprender (no afecta el tiempo de “reacción”, solo la dicción)
+      speed: (typeof opts.speed === "number" ? opts.speed : 0.85),
       // Solo aplica si usas gpt-4o-mini-tts (tu tts.js ya lo maneja)
       instructions: opts.instructions
     };
+
+    const r = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(payload),
+    });
+
+    if (!r.ok) {
+      const errTxt = await r.text();
+      throw new Error(`TTS ${r.status}: ${errTxt}`);
+    }
+
+    const audioBlob = await r.blob();
+    if (!audioBlob || audioBlob.size === 0) {
+      throw new Error("TTS returned empty audio");
+    }
+
+    const url = URL.createObjectURL(audioBlob);
+    const a = new Audio(url);
+    a.preload = "auto";
+
+    try {
+      await a.play();
+      await new Promise((resolve) => {
+        a.onended = () => resolve();
+        a.onerror = () => resolve();
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
 
     const r = await fetch("/api/tts", {
       method: "POST",
