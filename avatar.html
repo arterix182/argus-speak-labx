@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ARGUS — Avatar Call (Beta)</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root{
+      --bg:#071428; --card:#0b203b; --card2:#0a1b33; --txt:#e8f1ff; --mut:#9fb4d6;
+      --b:#1d3a66; --btn:#0f2a4e; --btn2:#11325c; --good:#15d36b; --warn:#ffcc00;
+      --r:18px;
+    }
+    *{box-sizing:border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;}
+    body{margin:0; background:linear-gradient(180deg,#061225 0%, #050c18 100%); color:var(--txt);}
+    .wrap{max-width:1100px; margin:0 auto; padding:22px;}
+    .card{background:linear-gradient(180deg,var(--card) 0%, var(--card2) 100%); border:1px solid var(--b); border-radius:var(--r); padding:18px; box-shadow:0 20px 60px rgba(0,0,0,.35);}
+    h1{margin:0 0 6px 0; font-size:34px; letter-spacing:.3px;}
+    .sub{color:var(--mut); margin:0 0 18px 0;}
+    .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center;}
+    .btn{
+      background:linear-gradient(180deg,var(--btn2),var(--btn));
+      border:1px solid #274a7d; color:var(--txt); padding:12px 14px;
+      border-radius:16px; cursor:pointer; font-weight:700; letter-spacing:.2px;
+    }
+    .btn:active{transform:translateY(1px);}
+    .pill{padding:10px 12px; border-radius:999px; border:1px solid #274a7d; color:var(--mut); background:rgba(10,25,45,.55);}
+    select{background:rgba(10,25,45,.7); border:1px solid #274a7d; color:var(--txt); padding:10px 12px; border-radius:14px; outline:none;}
+    .grid{display:grid; grid-template-columns: 1.05fr .95fr; gap:14px; margin-top:14px;}
+    @media (max-width:920px){ .grid{grid-template-columns:1fr;} }
+    .box{background:rgba(6,14,28,.45); border:1px solid #203f70; border-radius:18px; padding:14px;}
+    .label{font-weight:800; margin-bottom:8px;}
+    #log{white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:14px; line-height:1.35; color:#d7e6ff;}
+    .state{display:flex; gap:10px; align-items:center; margin-top:10px;}
+    .dot{width:12px; height:12px; border-radius:999px; background:#4b6b9b; box-shadow:0 0 0 3px rgba(75,107,155,.18);}
+    .dot.good{background:var(--good); box-shadow:0 0 0 3px rgba(21,211,107,.2);}
+    .dot.warn{background:var(--warn); box-shadow:0 0 0 3px rgba(255,204,0,.2);}
+    .mut{color:var(--mut);}
+    input[type="range"]{width:220px;}
+    .small{font-size:13px; color:var(--mut);}
+    video{width:100%; border-radius:16px; border:1px solid #224a7d; background:#040b16;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <h1>Avatar Beta (Voz → IA → Voz)</h1>
+          <p class="sub">Modo conversación continua tipo llamada. Se detiene por silencio (~0.7s) y vuelve a escuchar automáticamente.</p>
+        </div>
+        <div class="pill" id="apiPill">API: STT | CHAT | TTS</div>
+      </div>
+
+      <div class="row">
+        <button class="btn" id="btnCall">Iniciar llamada</button>
+        <button class="btn" id="btnTestText">Probar Chat (texto)</button>
+        <button class="btn" id="btnClear">Limpiar</button>
+
+        <span class="pill">Mic:</span>
+        <select id="micSelect"></select>
+
+        <span class="pill">Nivel:</span>
+        <input id="levelBar" type="range" min="0" max="100" value="0" />
+        <span class="small" id="levelTxt">0</span>
+      </div>
+
+      <div class="state">
+        <span class="dot" id="dot"></span>
+        <div><b>Estado:</b> <span id="state">idle</span></div>
+        <div class="mut" id="stateMsg"></div>
+      </div>
+
+      <div class="grid">
+        <div class="box">
+          <div class="label">Avatar</div>
+          <!-- Pon tus mp4 en /assets/avatar_idle.mp4 etc -->
+          <video id="avatar" autoplay muted playsinline loop></video>
+          <div class="small" style="margin-top:8px;">
+            Requiere: <code>/assets/avatar_idle.mp4</code>, <code>avatar_listening.mp4</code>, <code>avatar_thinking.mp4</code>, <code>avatar_speaking.mp4</code>
+          </div>
+        </div>
+
+        <div class="box">
+          <div class="label">Log</div>
+          <pre id="log">SYS: listo.</pre>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+/** =========================
+ *  UTIL
+ *  ========================= */
+const $ = (id)=>document.getElementById(id);
+const logEl = $("log");
+function addLog(s){ logEl.textContent += "\n" + s; logEl.scrollTop = logEl.scrollHeight; console.log(s); }
+
+function setState(st, msg=""){
+  $("state").textContent = st;
+  $("stateMsg").textContent = msg;
+  const dot = $("dot");
+  dot.className = "dot" + (st==="idle" ? "" : (st==="listening" ? " good" : " warn"));
+  VX_setAvatarState(st);
+}
+
+/** =========================
+ *  AVATAR 4 ESTADOS (mp4)
+ *  ========================= */
+const AVATAR = {
+  idle:      "/assets/avatar_idle.mp4",
+  listening: "/assets/avatar_listening.mp4",
+  thinking:  "/assets/avatar_thinking.mp4",
+  speaking:  "/assets/avatar_speaking.mp4"
+};
+function VX_setAvatarState(st){
+  const v = $("avatar");
+  const src = AVATAR[st] || AVATAR.idle;
+  if(v.dataset.src !== src){
+    v.dataset.src = src;
+    v.src = src;
+    v.play().catch(()=>{});
+  }
+}
+
+/** =========================
+ *  AUDIO UNLOCK (autoplay)
+ *  ========================= */
+async function VX_unlockAudio(){
+  try{
+    const a = new Audio();
+    a.src = "data:audio/mp3;base64,//uQZAAAAAAAAAAAA";
+    await a.play().catch(()=>{});
+  }catch(e){}
+}
+
+/** =========================
+ *  PIPELINE API
+ *  - STT: /api/stt (multipart/form-data)
+ *  - CHAT: /api/chat (json)
+ *  - TTS: /api/tts (json -> audio)
+ *  ========================= */
+async function VX_transcribeAudio(blob){
+  const fd = new FormData();
+  fd.append("file", blob, "audio.webm");
+  const r = await fetch("/api/stt", { method:"POST", body: fd });
+  const j = await r.json().catch(()=> ({}));
+  if(!r.ok) throw new Error(JSON.stringify(j));
+  return (j.text || "").trim();
+}
+
+async function VX_chatReply(userText){
+  const r = await fetch("/api/chat", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ userText })
+  });
+  const j = await r.json().catch(()=> ({}));
+  if(!r.ok) throw new Error(JSON.stringify(j));
+  return (j.reply || "").trim();
+}
+
+async function VX_ttsAudio(text){
+  const r = await fetch("/api/tts", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ text })
+  });
+  const ct = r.headers.get("content-type") || "audio/mpeg";
+  const buf = await r.arrayBuffer();
+  if(!r.ok) throw new Error("TTS failed " + r.status);
+  return { buf, ct };
+}
+
+// player global
+const VX_audioPlayer = new Audio();
+VX_audioPlayer.preload = "auto";
+VX_audioPlayer.muted = false;
+VX_audioPlayer.volume = 1;
+
+async function VX_playAudioAndWait(buf, mime){
+  const blob = new Blob([buf], { type: (mime && mime.includes("audio")) ? mime : "audio/mpeg" });
+  const url = URL.createObjectURL(blob);
+
+  VX_audioPlayer.pause();
+  if(VX_audioPlayer._vxUrl){ URL.revokeObjectURL(VX_audioPlayer._vxUrl); }
+  VX_audioPlayer._vxUrl = url;
+
+  VX_audioPlayer.src = url;
+  VX_audioPlayer.currentTime = 0;
+  VX_audioPlayer.muted = false;
+  VX_audioPlayer.volume = 1;
+
+  await VX_audioPlayer.play();
+
+  await new Promise((resolve)=>{
+    VX_audioPlayer.onended = ()=> resolve();
+    VX_audioPlayer.onerror = ()=> resolve();
+  });
+
+  URL.revokeObjectURL(url);
+  VX_audioPlayer._vxUrl = null;
+}
+
+/** =========================
+ *  CONVERSACIÓN CONTINUA (LLAMADA)
+ *  ========================= */
+let callActive = false;
+let micStream = null;
+
+let audioCtx = null;
+let analyser = null;
+let micSource = null;
+
+const CFG = {
+  silenceHoldMs: 700,
+  minRecordMs: 900,
+  startThreshold: 0.020,
+  silenceThreshold: 0.012,
+  maxTurnMs: 12000
+};
+
+async function refreshMics(){
+  const sel = $("micSelect");
+  const devs = await navigator.mediaDevices.enumerateDevices();
+  const mics = devs.filter(d=>d.kind==="audioinput");
+  sel.innerHTML = "";
+  mics.forEach((m,i)=>{
+    const opt = document.createElement("option");
+    opt.value = m.deviceId;
+    opt.textContent = m.label || ("Mic " + (i+1));
+    sel.appendChild(opt);
+  });
+}
+
+async function ensureMicStream(){
+  if(micStream && micStream.getTracks().some(t=>t.readyState==="live")) return micStream;
+
+  const sel = $("micSelect");
+  const deviceId = sel.value ? { exact: sel.value } : undefined;
+
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      deviceId,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
+  });
+
+  if(!audioCtx || audioCtx.state==="closed"){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  await audioCtx.resume().catch(()=>{});
+
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 1024;
+
+  try{ micSource?.disconnect(); }catch(e){}
+  micSource = audioCtx.createMediaStreamSource(micStream);
+  micSource.connect(analyser);
+
+  return micStream;
+}
+
+function getRMS(){
+  if(!analyser) return 0;
+  const data = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(data);
+  let sum = 0;
+  for(let i=0;i<data.length;i++){
+    const v = (data[i]-128)/128;
+    sum += v*v;
+  }
+  return Math.sqrt(sum / data.length);
+}
+
+function updateLevelUI(rms){
+  const v = Math.max(0, Math.min(100, Math.round(rms*600)));
+  $("levelBar").value = v;
+  $("levelTxt").textContent = v;
+}
+
+async function recordOneTurn(){
+  await ensureMicStream();
+
+  setState("listening","Escuchando (auto-stop por silencio)");
+  addLog("SYS: Escuchando...");
+
+  const chunks = [];
+  const rec = new MediaRecorder(micStream, { mimeType:"audio/webm" });
+
+  let startedAt = 0;
+  let voiceSeen = false;
+  let lastVoiceTs = 0;
+  let stopRequested = false;
+
+  rec.ondataavailable = (e)=>{ if(e.data && e.data.size) chunks.push(e.data); };
+
+  const stopPromise = new Promise((resolve,reject)=>{
+    rec.onstop = ()=> resolve();
+    rec.onerror = (e)=> reject(e.error || e);
+  });
+
+  rec.start(250);
+
+  startedAt = performance.now();
+  lastVoiceTs = startedAt;
+
+  while(true){
+    if(!callActive){
+      try{ rec.stop(); }catch(e){}
+      await stopPromise.catch(()=>{});
+      return null;
+    }
+
+    const now = performance.now();
+    const rms = getRMS();
+    updateLevelUI(rms);
+
+    if(rms >= CFG.startThreshold){
+      voiceSeen = true;
+      lastVoiceTs = now;
+    }
+
+    if(voiceSeen && rms <= CFG.silenceThreshold){
+      const silentFor = now - lastVoiceTs;
+      const recordedFor = now - startedAt;
+      if(recordedFor >= CFG.minRecordMs && silentFor >= CFG.silenceHoldMs){
+        stopRequested = true;
+      }
+    }
+
+    if(now - startedAt >= CFG.maxTurnMs) stopRequested = true;
+
+    if(stopRequested){
+      try{ rec.stop(); }catch(e){}
+      break;
+    }
+
+    await new Promise(r=>setTimeout(r, 40));
+  }
+
+  await stopPromise;
+
+  const blob = new Blob(chunks, { type:"audio/webm" });
+  if(blob.size < 5000){
+    addLog("SYS: Habla al menos 1 segundo. Intenta de nuevo.");
+    return null;
+  }
+  return blob;
+}
+
+async function runTurn(){
+  await VX_unlockAudio().catch(()=>{});
+
+  const blob = await recordOneTurn();
+  if(!blob) return;
+
+  setState("thinking","STT...");
+  addLog("SYS: STT...");
+  const userText = await VX_transcribeAudio(blob);
+
+  if(!userText){
+    addLog("SYS: No detecté voz clara. Intenta de nuevo.");
+    return;
+  }
+  addLog("YOU: " + userText);
+
+  setState("thinking","CHAT...");
+  addLog("SYS: CHAT...");
+  const reply = await VX_chatReply(userText);
+
+  if(!reply){
+    addLog("SYS: Sin respuesta.");
+    return;
+  }
+  addLog("BOT: " + reply);
+
+  setState("speaking","TTS...");
+  addLog("SYS: TTS...");
+  const {buf, ct} = await VX_ttsAudio(reply);
+  await VX_playAudioAndWait(buf, ct);
+
+  setState("idle","Listo");
+}
+
+async function callLoop(){
+  while(callActive){
+    try{
+      await runTurn();
+    }catch(e){
+      console.error(e);
+      addLog("SYS: ERROR: " + (e?.message || e));
+      setState("idle","Error, reintentando...");
+      await new Promise(r=>setTimeout(r, 450));
+    }
+  }
+}
+
+async function startCall(){
+  callActive = true;
+  $("btnCall").textContent = "Detener llamada";
+  addLog("SYS: Llamada iniciada.");
+  await ensureMicStream();
+  callLoop();
+}
+
+function stopCall(){
+  callActive = false;
+  $("btnCall").textContent = "Iniciar llamada";
+  setState("idle","Llamada detenida.");
+  addLog("SYS: Llamada detenida.");
+}
+
+/** =========================
+ *  EVENTS
+ *  ========================= */
+$("btnCall").onclick = async ()=>{
+  await VX_unlockAudio().catch(()=>{});
+  if(!callActive) startCall();
+  else stopCall();
+};
+
+$("btnClear").onclick = ()=>{
+  logEl.textContent = "SYS: listo.";
+  $("levelBar").value = 0;
+  $("levelTxt").textContent = "0";
+  setState("idle","");
+};
+
+$("btnTestText").onclick = async ()=>{
+  await VX_unlockAudio().catch(()=>{});
+  try{
+    setState("thinking","CHAT...");
+    addLog("SYS: CHAT (texto)...");
+    const reply = await VX_chatReply("Give me one short correction + one example. Keep it very short.");
+    addLog("BOT: " + reply);
+    setState("speaking","TTS...");
+    const {buf, ct} = await VX_ttsAudio(reply);
+    await VX_playAudioAndWait(buf, ct);
+    setState("idle","Listo");
+  }catch(e){
+    console.error(e);
+    addLog("SYS: ERROR: " + (e?.message || e));
+    setState("idle","Error");
+  }
+};
+
+// Init
+(async ()=>{
+  try{
+    await refreshMics();
+    VX_setAvatarState("idle");
+    setState("idle","");
+    addLog("SYS: OK. Listo para llamada.");
+  }catch(e){
+    addLog("SYS: ERROR init: " + (e?.message || e));
+  }
+})();
+</script>
+</body>
+</html>
