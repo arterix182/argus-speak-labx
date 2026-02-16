@@ -1,4 +1,4 @@
-// js/voicePipeline.js (STT + CHAT, globals que espera voiceRecorder)
+// js/voicePipeline.js (STT + CHAT + TTS browser; globals que espera voiceRecorder)
 (() => {
   "use strict";
 
@@ -42,20 +42,17 @@
   };
 
   // ---------------- CHAT ----------------
-  // ✅ Esta es la que te está faltando: VX_chatReply
-  // Recibe texto y devuelve texto de respuesta.
   window.VX_chatReply = async function (userText, ctx = {}) {
     const text = (userText || "").trim();
     if (!text) return "";
 
-    // Endpoint de chat (si tu proyecto usa otro, cámbialo aquí)
+    // Si tu endpoint es otro, cambia aquí
     const r = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({
         message: text,
-        // opcional: historial / modo / systemPrompt
         history: ctx.history || [],
         mode: ctx.mode || "default",
       }),
@@ -63,7 +60,6 @@
 
     const j = await jsonOrThrow(r, "CHAT");
 
-    // Soporta varias formas de respuesta
     const reply =
       j.reply ??
       j.text ??
@@ -74,12 +70,55 @@
     return String(reply || "").trim();
   };
 
+  // ---------------- TTS (Browser SpeechSynthesis) ----------------
+  // ✅ Lo que te está faltando: VX_ttsSpeak
+  // Objetivo: que "hable" el texto; no requiere API ni endpoint.
+  window.VX_ttsSpeak = async function (text, opts = {}) {
+    const t = String(text || "").trim();
+    if (!t) return;
+
+    if (!("speechSynthesis" in window)) {
+      // Si el navegador no soporta TTS, no rompemos la llamada:
+      console.warn("speechSynthesis not supported");
+      return;
+    }
+
+    // Cancela cualquier voz previa
+    window.speechSynthesis.cancel();
+
+    const utter = new SpeechSynthesisUtterance(t);
+
+    // Opciones básicas
+    // Nota: en algunos Windows conviene 'es-MX' o 'en-US'; ajusta si quieres
+    utter.lang = opts.lang || "en-US";
+    utter.rate = typeof opts.rate === "number" ? opts.rate : 1.0;
+    utter.pitch = typeof opts.pitch === "number" ? opts.pitch : 1.0;
+    utter.volume = typeof opts.volume === "number" ? opts.volume : 1.0;
+
+    // Selección de voz opcional (si existe)
+    const wantName = (opts.voiceName || "").toLowerCase();
+    const voices = window.speechSynthesis.getVoices?.() || [];
+    if (voices.length) {
+      const picked =
+        (wantName && voices.find(v => (v.name || "").toLowerCase().includes(wantName))) ||
+        voices.find(v => (v.lang || "").toLowerCase().startsWith((utter.lang || "").toLowerCase())) ||
+        voices[0];
+      if (picked) utter.voice = picked;
+    }
+
+    await new Promise((resolve) => {
+      utter.onend = () => resolve();
+      utter.onerror = () => resolve(); // no bloqueamos el flujo por TTS
+      window.speechSynthesis.speak(utter);
+    });
+  };
+
   console.log("✅ voicePipeline loaded", {
     VX_sttTranscribe: typeof window.VX_sttTranscribe,
     VX_transcribeAudio: typeof window.VX_transcribeAudio,
     VX_chatReply: typeof window.VX_chatReply,
+    VX_ttsSpeak: typeof window.VX_ttsSpeak,
   });
 })();
-
 
 
