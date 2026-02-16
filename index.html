@@ -439,36 +439,378 @@
 
     // ===== Call =====
     let callActive = false;
+<script>
+/** =========================
+ *  C) MODO CONVERSACIÓN CONTINUA (LLAMADA)
+ *  Escucha → auto-stop por silencio → STT → CHAT → TTS → reproduce → repite
+ *  ========================= */
 
+(function(){
+  // --- UI (ajusta IDs si tus elementos se llaman distinto)
+  const btnCall   = document.getElementById("btnCall");     // botón principal
+  const micSelect = document.getElementById("micSelect");   // <select> opcional
+  const levelBar  = document.getElementById("levelBar");    // <input type="range"> o <progress>
+
+  // --- Estado global
+  let callActive = false;
+  let micStream = null;
+
+  // Para no “romperse” después del primer turno
+  let audioCtx = null;
+  let analyser = null;
+  let micSource = null;
+
+  // Ajustes finos (puedes tunear)
+  const CFG = {
+    // silencio para detener (ms)
+    silenceHoldMs: 700,
+    // mínimo tiempo de grabación (ms) para evitar cortes falsos
+    minRecordMs: 900,
+    // umbral de inicio de voz (RMS)
+    startThreshold: 0.020,
+    // umbral de silencio (RMS)
+    silenceThreshold: 0.012,
+    // seguridad: máximo de grabación por turno (ms)
+    maxTurnMs: 12000
+  };
+
+  // Helpers de log/estado (usa los tuyos si ya tienes)
+  function addLog(msg){
+    console.log(msg);
+    const log = document.getElementById("log");
+    if(log) log.textContent += (msg + "\n");
+  }
+  function setState(st, msg=""){
+    const el = document.getElementById("state");
+    if(el) el.textContent = st + (msg ? " — " + msg : "");
+    // Si ya tienes avatar states, llama aquí:
+    // window.VX_setAvatarState?.(st);
+  }
+
+  // 1) Obtener mic stream (se reutiliza, NO se recrea cada turno)
+  async function ensureMicStream(){
+    if(micStream && micStream.getTracks().some(t=>t.readyState==="live")) return micStream;
+
+    const deviceId = micSelect?.value ? { exact: micSelect.value } : undefined;
+
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+
+    // Monta AudioContext + Analyser (reutilizable)
+    if(!audioCtx || audioCtx.state === "closed"){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    await audioCtx.resume().catch(()=>{});
+
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+
+    // Si ya existía source, desconecta
+    try{ micSource?.disconnect(); }catch(e){}
+
+    micSource = audioCtx.createMediaStreamSource(micStream);
+    micSource.connect(analyser);
+
+    return micStream;
+  }
+
+  // 2) Medir RMS para barra de nivel + detección de voz/silencio
+  function getRMS(){
+    if(!analyser) return 0;
+    const data = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for(let i=0;i<data.length;i++){
+      const v = (data[i]-128)/128;
+      sum += v*v;
+    }
+    return Math.sqrt(sum / data.length); // 0..~0.2
+  }
+
+  function updateLevelUI(rms){
+    if(!levelBar) return;
+    // convierte a 0..100 (aprox)
+    const val = Math.max(0, Math.min(100, Math.round(rms*600)));
+    if(levelBar.tagName.toLowerCase() === "progress") levelBar.value = val;
+    else levelBar.value = val;
+  }
+
+  // 3) Grabar una “frase” (auto-stop por silencio)
+  async function recordOneTurn(){
+    await ensureMicStream();
+
+    setState("listening", "Escuchando (auto-stop por silencio)");
+    addLog("SYS: Escuchando... (auto-stop por silencio)");
+
+    // MediaRecorder por turno (estable y evita bugs del segundo intento)
+    const chunks = [];
+    const rec = new MediaRecorder(micStream, { mimeType: "audio/webm" });
+
+    let startedAt = 0;
+    let voiceSeen = false;
+    let lastVoiceTs = 0;
+    let stopRequested = false;
+
+    const startTs = performance.now();
+
+    rec.ondataavailable = (e)=> { if(e.data && e.data.size) chunks.push(e.data); };
+
+    const stopPromise = new Promise((resolve, reject)=>{
+      rec.onstop = ()=> resolve();
+      rec.onerror = (e)=> reject(e.error || e);
+    });
+
+    rec.start(250); // timeslice
+
+    startedAt = performance.now();
+    lastVoiceTs = startedAt;
+
+    // Loop de detección de silencio
+    while(true){
+      if(!callActive){ // si cortas llamada
+        try{ rec.stop(); }catch(e){}
+        await stopPromise.catch(()=>{});
+        return null;
+      }
+
+      const now = performance.now();
+      const rms = getRMS();
+      updateLevelUI(rms);
+
+      // Detecta voz
+      if(rms >= CFG.startThreshold){
+        voiceSeen = true;
+        lastVoiceTs = now;
+      }
+
+      // Solo empieza a contar silencio DESPUÉS de haber visto voz
+      if(voiceSeen && rms <= CFG.silenceThreshold){
+        const silentFor = now - lastVoiceTs;
+        const recordedFor = now - startedAt;
+
+        // Condición de paro
+        if(recordedFor >= CFG.minRecordMs && silentFor >= CFG.silenceHoldMs){
+          stopRequested = true;
+        }
+      }
+
+      // Seguridad: máximo por turno
+      if(now - startedAt >= CFG.maxTurnMs) stopRequested = true;
+
+      if(stopRequested){
+        try{ rec.stop(); }catch(e){}
+        break;
+      }
+
+      await new Promise(r=>setTimeout(r, 40));
+    }
+
+    await stopPromise;
+
+    const blob = new Blob(chunks, { type: "audio/webm" });
+    if(blob.size < 5000){ // muy chico => casi nada
+      addLog("SYS: Habla al menos 1 segundo. Intenta de nuevo.");
+      return null;
+    }
+
+    return blob;
+  }
+
+  // 4) Un turno completo: STT → CHAT → TTS → reproducir
+  async function runTurn(){
+    // IMPORTANTE: desbloquea audio en primer click (si ya lo haces, ok)
+    if(window.VX_unlockAudio) await window.VX_unlockAudio().catch(()=>{});
+
+    const blob = await recordOneTurn();
+    if(!blob) return;
+
+    setState("thinking", "STT...");
+    addLog("SYS: STT...");
+
+    // Tu STT ya lo tienes en /api/stt (multipart o lo que uses)
+    // Si ya tienes window.VX_transcribeAudio, úsalo:
+    let userText = "";
+    if(window.VX_transcribeAudio){
+      userText = await window.VX_transcribeAudio(blob);
+    } else {
+      // Fallback multipart/form-data
+      const fd = new FormData();
+      fd.append("file", blob, "audio.webm");
+      const r = await fetch("/api/stt", { method:"POST", body: fd });
+      const j = await r.json();
+      if(!r.ok) throw new Error(JSON.stringify(j));
+      userText = (j.text || "").trim();
+    }
+
+    if(!userText){
+      addLog("SYS: No detecté voz clara. Intenta de nuevo.");
+      return;
+    }
+
+    addLog("YOU: " + userText);
+
+    setState("thinking", "CHAT...");
+    addLog("SYS: CHAT...");
+
+    let reply = "";
+    if(window.VX_chatReply){
+      reply = await window.VX_chatReply(userText);
+    } else {
+      const r = await fetch("/api/chat", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ userText })
+      });
+      const j = await r.json();
+      if(!r.ok) throw new Error(JSON.stringify(j));
+      reply = (j.reply || "").trim();
+    }
+
+    if(!reply){
+      addLog("SYS: Sin respuesta. Reintenta.");
+      return;
+    }
+
+    addLog("BOT: " + reply);
+
+    setState("speaking", "TTS...");
+    addLog("SYS: TTS...");
+
+    // TTS
+    let ttsBuf = null;
+    let ttsMime = "audio/mpeg";
+
+    if(window.VX_ttsAudio){
+      const out = await window.VX_ttsAudio(reply);
+      // Soporta ambos formatos: {buf, ct} o ArrayBuffer directo
+      if(out && out.buf){
+        ttsBuf = out.buf;
+        ttsMime = out.ct || ttsMime;
+      } else {
+        ttsBuf = out;
+      }
+    } else {
+      const r = await fetch("/api/tts", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ text: reply })
+      });
+      ttsMime = r.headers.get("content-type") || ttsMime;
+      ttsBuf = await r.arrayBuffer();
+      if(!r.ok) throw new Error("TTS failed " + r.status);
+    }
+
+    // Reproduce y ESPERA a que termine, luego vuelve a escuchar
+    await playTTSAndWait(ttsBuf, ttsMime);
+
+    setState("idle", "Listo");
+  }
+
+  // Reproducir audio y esperar a que termine
+  async function playTTSAndWait(arrayBuffer, mime){
+    // Si ya tienes VX_playAudio que no espera, usamos nuestro player con await
+    const blob = new Blob([arrayBuffer], { type: (mime && mime.includes("audio")) ? mime : "audio/mpeg" });
+    const url = URL.createObjectURL(blob);
+
+    const a = window.VX_audioPlayer || new Audio();
+    window.VX_audioPlayer = a;
+
+    a.muted = false;
+    a.volume = 1;
+    a.src = url;
+    a.currentTime = 0;
+
+    await a.play();
+
+    await new Promise((resolve)=> {
+      a.onended = ()=> resolve();
+      a.onerror = ()=> resolve();
+    });
+
+    URL.revokeObjectURL(url);
+  }
+
+  // 5) Loop de llamada
+  async function callLoop(){
+    while(callActive){
+      try{
+        await runTurn();
+      }catch(e){
+        console.error(e);
+        addLog("SYS: ERROR: " + (e?.message || e));
+        // Si truena algo, espera poquito y reintenta (sin matar llamada)
+        await new Promise(r=>setTimeout(r, 400));
+      }
+    }
+  }
+
+  // 6) Start/Stop
+  async function startCall(){
+    callActive = true;
+    if(btnCall) btnCall.textContent = "Detener llamada";
+    setState("listening", "Iniciando mic...");
+    addLog("SYS: Llamada iniciada.");
+
+    await ensureMicStream();
+
+    // Muy importante: NO cierres stream entre turnos, solo reusa.
+    callLoop();
+  }
+
+  function stopCall(){
+    callActive = false;
+    if(btnCall) btnCall.textContent = "Iniciar llamada";
+    setState("idle", "Llamada detenida.");
+    addLog("SYS: Llamada detenida.");
+
+    // Opcional: mantener stream para reactivar rápido.
+    // Si prefieres liberar recursos, descomenta:
+    // try{ micStream?.getTracks()?.forEach(t=>t.stop()); }catch(e){}
+    // micStream = null;
+  }
+
+  // 7) Hook al botón
+  if(btnCall){
     btnCall.onclick = async ()=>{
-      if(!callActive){
-        callActive = true;
-        setCallUI(true);
-        addLog("SYS: 📞 Llamada iniciada.");
-        setState("listening","Habla… (silencio = stop)");
+      // desbloqueo audio por click (recomendado)
+      if(window.VX_unlockAudio) await window.VX_unlockAudio().catch(()=>{});
 
-        await setAvatarState("listening");
+      if(!callActive) startCall();
+      else stopCall();
+    };
+  }
 
-        await window.VX_callStart({
-          mode: modeSel.value,
-          onLog: addLog,
-          onState: async (s)=>{
-            const ss = (s||"").toLowerCase();
+  // 8) (Opcional) refrescar mics si existe select
+  async function refreshMics(){
+    if(!micSelect) return;
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const mics = devs.filter(d=>d.kind==="audioinput");
+    micSelect.innerHTML = "";
+    mics.forEach((m,i)=>{
+      const opt = document.createElement("option");
+      opt.value = m.deviceId;
+      opt.textContent = m.label || ("Mic " + (i+1));
+      micSelect.appendChild(opt);
+    });
+  }
+  if(micSelect){
+    navigator.mediaDevices.addEventListener?.("devicechange", refreshMics);
+    refreshMics().catch(()=>{});
+  }
 
-            if(ss==="listening")  await setAvatarState("listening");
-            else if(ss==="thinking") await setAvatarState("thinking");
-            else if(ss==="speaking") await setAvatarState("speaking");
-            else if(ss==="error") await setAvatarState("error");
-            else await setAvatarState("idle");
+  // Exponer por si lo ocupas en consola
+  window.VX_startCall = startCall;
+  window.VX_stopCall = stopCall;
 
-            if(ss==="listening") setState("listening","Habla… (silencio = stop)");
-            else if(ss==="thinking") setState("thinking","Procesando…");
-            else if(ss==="speaking") setState("speaking","Respondiendo…");
-            else if(ss==="idle") setState("idle","Listo para el siguiente turno…");
-            else if(ss==="error") setState("error","Revisa consola");
-            else setState(ss,"");
-          }
-        });
+})();
+</script>
+
 
         // Si se sale por stop/error, normalizamos UI
         callActive = false;
