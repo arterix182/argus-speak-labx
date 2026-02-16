@@ -1,1 +1,2 @@
-/api/*  /.netlify/functions/:splat  200
+/api/* /.netlify/functions/:splat 200
+/js/voiceRecorder.js /voiceRecorder.js 200
