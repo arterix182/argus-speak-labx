@@ -42,6 +42,32 @@
       100%{transform:scale(1.01);filter:brightness(1.03)}
     }
     .mini{opacity:.7;font-size:12px;margin-top:8px}
+
+/* ===== Pro Avatar Layers (lipsync TTS + blink) ===== */
+.avatarWrap{position:relative;border-radius:14px;overflow:hidden}
+/* Capas usando la misma imagen como fondo para que encaje perfecto */
+.mouthLayer,.eyesLayer{
+  position:absolute; inset:0; pointer-events:none;
+  background-image:url("/assets/avatar.webp");
+  background-size:cover; background-position:center; background-repeat:no-repeat;
+  transform-origin:50% 50%;
+  will-change:transform, filter;
+}
+/* ✅ Recorte aproximado BOCA (ajústalo si tu cara tiene boca en otra zona) */
+.mouthLayer{
+  clip-path: polygon(38% 58%, 62% 58%, 66% 74%, 34% 74%);
+  transform-origin:50% 66%;
+}
+/* ✅ Recorte aproximado OJOS para parpadeo */
+.eyesLayer{
+  clip-path: polygon(28% 24%, 72% 24%, 78% 45%, 22% 45%);
+  transform-origin:50% 34%;
+}
+.eyesLayer.blink{
+  transform: scaleY(0.08);
+  filter: brightness(0.96);
+  transition: transform 90ms ease;
+}
   </style>
 </head>
 
@@ -77,9 +103,13 @@
 
       <div class="grid">
         <div class="avatarBox">
+            <div id="avatarWrap" class="avatarWrap idle">
           <img id="avatarImg" src="/assets/avatar.webp" alt="Avatar" />
-          <div class="mini" id="avatarHint">Avatar: idle/listening/thinking/speaking (videos en /assets)</div>
+          <div id="mouthLayer" class="mouthLayer"></div>
+          <div id="eyesLayer" class="eyesLayer"></div>
         </div>
+        <div class="mini" id="avatarHint">Avatar: lipsync (TTS) + blink (pro)</div>
+      </div>
 
         <div>
           <h2 style="margin:0 0 10px">Log</h2>
@@ -132,7 +162,160 @@
       avatarImg.classList.add(s);
     }
     window.addEventListener("VX_AVATAR", (e)=> setAvatar(e.detail?.state || "idle"));
-    setAvatar("idle");
+    
+setAvatar("idle");
+
+// ===== PRO: Lipsync usando el audio real del BOT (TTS) + Blink =====
+const avatarWrap = document.getElementById("avatarWrap");
+const mouthLayer = document.getElementById("mouthLayer");
+const eyesLayer  = document.getElementById("eyesLayer");
+
+// Audio del bot + analyser (WebAudio) para lipsync real
+let botAudio = null;
+let botCtx = null;
+let botAnalyser = null;
+let botData = null;
+
+function ensureBotAnalyser(){
+  if (!botAudio){
+    botAudio = new Audio();
+    botAudio.preload = "auto";
+    botAudio.crossOrigin = "anonymous";
+    window.__VX_botAudio = botAudio;
+  }
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return false;
+
+  if (!botCtx){
+    botCtx = new Ctx();
+    try { botCtx.resume?.(); } catch {}
+    const src = botCtx.createMediaElementSource(botAudio);
+    botAnalyser = botCtx.createAnalyser();
+    botAnalyser.fftSize = 1024;
+    botData = new Uint8Array(botAnalyser.fftSize);
+    src.connect(botAnalyser);
+    botAnalyser.connect(botCtx.destination);
+  } else {
+    try { botCtx.resume?.(); } catch {}
+  }
+  return true;
+}
+
+function getBotRms(){
+  if(!botAnalyser || !botData) return 0;
+  botAnalyser.getByteTimeDomainData(botData);
+  let sum = 0;
+  for(let i=0;i<botData.length;i++){
+    const v = (botData[i]-128)/128;
+    sum += v*v;
+  }
+  return Math.sqrt(sum/botData.length);
+}
+
+// Lipsync loop: mueve solo la "boca" cuando el estado es speaking
+let __vxSpeaking = false;
+function lipsyncLoop(){
+  if (mouthLayer){
+    const rms = __vxSpeaking ? getBotRms() : 0;
+
+    // Ajusta sensibilidad (si abre poco, baja base; si abre mucho, sube base)
+    const base = 0.008;
+    const range = 0.040;
+    let amp = (rms - base) / range;
+    amp = Math.max(0, Math.min(1, amp));
+
+    const open = 1 + amp * 0.85;  // apertura
+    const lift = amp * -1.2;      // leve elevación
+    mouthLayer.style.transform = `translateY(${lift}px) scaleY(${open})`;
+  }
+  requestAnimationFrame(lipsyncLoop);
+}
+lipsyncLoop();
+
+// Blink aleatorio: cada 2–6s, 120ms
+(function scheduleBlink(){
+  const wait = 2000 + Math.random()*4000;
+  setTimeout(()=>{
+    if (eyesLayer){
+      eyesLayer.classList.add("blink");
+      setTimeout(()=> eyesLayer.classList.remove("blink"), 120);
+    }
+    scheduleBlink();
+  }, wait);
+})();
+
+// Mantén __vxSpeaking sincronizado con el estado
+window.addEventListener("VX_AVATAR", (e)=>{
+  const st = e.detail?.state || "idle";
+  __vxSpeaking = (st === "speaking");
+  if (avatarWrap){
+    avatarWrap.classList.remove("idle","listening","thinking","speaking");
+    avatarWrap.classList.add(st);
+  }
+});
+
+// Override seguro de VX_ttsSpeak para usar botAudio + analyser (misma API para voiceRecorder)
+(function patchTTS(){
+  const original = window.VX_ttsSpeak;
+  window.VX_ttsSpeak = async function(text, opts = {}){
+    const t = String(text||"").trim();
+    if(!t) return;
+
+    // asegura analyser para lipsync
+    ensureBotAnalyser();
+
+    // recorta SOLO para voz (latencia)
+    const tSpeak = t.length > 240 ? (t.slice(0,240).replace(/\s+\S*$/, "") + "…") : t;
+
+    const payload = {
+      text: tSpeak,
+      model: "tts-1",
+      voice: "nova",
+      format: "mp3",
+      speed: 0.85,
+      ...(opts||{})
+    };
+
+    const r = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(payload),
+    });
+
+    if(!r.ok){
+      const errTxt = await r.text();
+      // si existía original, intenta fallback (por si tu pipeline tenía otra ruta)
+      if (typeof original === "function") {
+        try { return await original(t, opts); } catch {}
+      }
+      throw new Error(`TTS ${r.status}: ${errTxt}`);
+    }
+
+    const blob = await r.blob();
+    if(!blob || !blob.size) throw new Error("TTS returned empty audio");
+
+    const url = URL.createObjectURL(blob);
+
+    // autoplay policies: en click del usuario normalmente deja; si falla, no rompe la llamada.
+    botAudio.src = url;
+
+    try{
+      await botAudio.play();
+    }catch(_){
+      // Si el navegador bloquea autoplay, igual resolvemos para no "congelar" el flujo.
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    await new Promise((resolve)=>{
+      botAudio.onended = () => resolve();
+      botAudio.onerror = () => resolve();
+    });
+
+    try { URL.revokeObjectURL(url); } catch {}
+  };
+})();
 // UI wires
     const micSelect = document.getElementById("micSelect");
     const lvlBar = document.getElementById("lvlBar");
@@ -220,6 +403,8 @@ console.error(e);
   </script>
 </body>
 </html>
+
+
 
 
 
