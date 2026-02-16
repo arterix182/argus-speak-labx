@@ -810,65 +810,7 @@
 
 })();
 </script>
-
-
-        // Si se sale por stop/error, normalizamos UI
-        callActive = false;
-        setCallUI(false);
-        await setAvatarState("idle");
-        setState("idle","Listo");
-
-      } else {
-        callActive = false;
-        window.VX_callHardStop?.();
-        setCallUI(false);
-        addLog("SYS: 📴 Llamada detenida.");
-        setState("idle","Llamada detenida");
-        await setAvatarState("idle");
-      }
-    };
-
-    // ===== Test chat text =====
-    btnTest.onclick = async ()=>{
-      try{
-        const t = (txtTest.value||"").trim();
-        if(!t) return addLog('SYS: Escribe algo en "Probar Chat".');
-        addLog("SYS: CHAT (texto)...");
-        await setAvatarState("thinking");
-        const reply = await window.VX_chatReply(t);
-        addLog("BOT: " + reply);
-        addLog("SYS: TTS...");
-        await setAvatarState("speaking");
-        const audio = await window.VX_ttsAudio(reply);
-        await window.VX_playAudio(audio);
-        await setAvatarState("idle");
-        setState("idle","Listo");
-      }catch(e){
-        console.error(e);
-        addLog("SYS: ERROR: " + (e?.message || String(e)));
-        setState("error","Revisa consola");
-        await setAvatarState("error");
-      }
-    };
-
-    btnClear.onclick = ()=>{
-      logEl.textContent = "";
-      setState("idle","Listo");
-      addLog("SYS: Log limpio.");
-    };
-
-    // ===== Init =====
-    (async ()=>{
-      setState("idle","Listo");
-      await setAvatarState("idle");
-      try{
-        await refreshMics();
-      }catch(e){
-        addLog("SYS: No se pudieron listar mics. Da permiso al micrófono.");
-      }
-      addLog("SYS: UI lista.");
-    })();
-  </script>
+  
 </body>
 </html>
 
