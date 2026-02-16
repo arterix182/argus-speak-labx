@@ -1,70 +1,92 @@
-const formidable = require("formidable");
+// netlify/functions/stt.js
+import OpenAI from "openai";
+import { formidable } from "formidable";   // ✅ esta es la forma correcta para formidable v3+
+import fs from "fs";
 
-exports.handler = async (event)=> {
-  try{
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    if(!OPENAI_API_KEY) return json(500,{error:"Missing OPENAI_API_KEY"});
+export const config = {
+  api: { bodyParser: false },
+};
 
-    // Debe ser multipart/form-data
-    const ct = (event.headers["content-type"] || event.headers["Content-Type"] || "");
-    if(!ct.includes("multipart/form-data")){
-      return json(400,{error:`Content-Type must be multipart/form-data. Got: ${ct}`});
+function json(statusCode, obj) {
+  return {
+    statusCode,
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    },
+    body: JSON.stringify(obj),
+  };
+}
+
+export async function handler(event) {
+  try {
+    if (event.httpMethod === "OPTIONS") {
+      return {
+        statusCode: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+        body: "",
+      };
     }
 
+    if (event.httpMethod !== "POST") {
+      return json(405, { error: "Method not allowed" });
+    }
+
+    // ✅ formidable necesita un request-like object. Netlify te pasa event, así que usamos workaround:
+    // Creamos un stream temporal a partir del body base64.
+    const isBase64 = event.isBase64Encoded;
+    const bodyBuffer = Buffer.from(event.body || "", isBase64 ? "base64" : "utf8");
+
+    // Simulamos req para formidable (Netlify no da req real)
+    // formidable permite parsear si le pasas un objeto con headers y un stream readable.
+    const { Readable } = await import("stream");
+    const req = new Readable();
+    req.push(bodyBuffer);
+    req.push(null);
+    req.headers = event.headers || {};
+
     const form = formidable({
-      multiples:false,
-      maxFileSize: 25 * 1024 * 1024
+      multiples: false,
+      keepExtensions: true,
+      maxFileSize: 25 * 1024 * 1024,
     });
 
-    const { fields, files } = await new Promise((resolve,reject)=>{
-      form.parse(event, (err, fields, files)=>{
-        if(err) reject(err);
-        else resolve({ fields, files });
+    const { fields, files } = await new Promise((resolve, reject) => {
+      form.parse(req, (err, fields, files) => {
+        if (err) return reject(err);
+        resolve({ fields, files });
       });
     });
 
-    const f = files.file;
-    if(!f) return json(400,{error:"Missing file field"});
-    const file = Array.isArray(f) ? f[0] : f;
+    const fileObj = files.file;
+    if (!fileObj) return json(400, { error: "Missing file" });
 
-    // Leer buffer (formidable guarda en filepath)
-    const fs = require("fs");
-    const buf = fs.readFileSync(file.filepath);
-    const mimeType = fields.mimeType || file.mimetype || "audio/webm";
+    // formidable a veces devuelve array
+    const f = Array.isArray(fileObj) ? fileObj[0] : fileObj;
 
-    // Node 18 tiene FormData y Blob
-    const fd = new FormData();
-    fd.append("model","whisper-1");
-    fd.append("file", new Blob([buf], { type: mimeType }), "audio.webm");
+    const filepath = f.filepath || f.path; // depende versión
+    if (!filepath) return json(400, { error: "No filepath from upload" });
 
-    const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method:"POST",
-      headers:{ "Authorization": `Bearer ${OPENAI_API_KEY}` },
-      body: fd
+    const mimeType = fields.mimeType || f.mimetype || "audio/webm";
+
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const transcript = await client.audio.transcriptions.create({
+      file: fs.createReadStream(filepath),
+      model: "gpt-4o-mini-transcribe",
+      // language: "en", // opcional
     });
 
-    const txt = await r.text();
-    let j;
-    try{ j = JSON.parse(txt); }catch{ j = { raw: txt }; }
-
-    if(!r.ok){
-      return json(500,{error:"STT failed", details:j});
-    }
-
-    return json(200,{ text: (j.text||"").trim() });
-
-  }catch(e){
-    return json(500,{error:String(e && e.message ? e.message : e)});
+    return json(200, { text: transcript.text || "", mimeType });
+  } catch (e) {
+    console.error("STT ERROR:", e);
+    return json(500, { error: String(e?.message || e) });
   }
-};
-
-function json(statusCode, obj){
-  return {
-    statusCode,
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify(obj)
-  };
 }
+
 
 
 
