@@ -273,6 +273,15 @@
     stopCall: typeof window.VX_stopCall,
     setMic: typeof window.VX_setMic,
   });
+   btnCall.onclick = async () => {
+  const fn = window.VX_callStart || window.VX_startCall || window.VX_startRecording || window.VX_start;
+  if (!fn) {
+    alert("No cargó voiceRecorder.js (no existe función de inicio). Revisa <script src=...>.");
+    return;
+  }
+  await fn();
+};
+
 
 })();
 
