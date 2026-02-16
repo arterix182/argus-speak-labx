@@ -6,8 +6,8 @@
   <title>Avatar Beta (Voz → IA → Voz)</title>
   <style>
     :root{
-      --bg1:#08142b; --bg2:#0d1f3e; --card:#0b1a35cc; --line:#1b3a66;
-      --txt:#eaf2ff; --mut:#a7b8d6; --good:#22c55e; --warn:#fbbf24; --bad:#ef4444;
+      --bg1:#08142b; --bg2:#0d1f3e; --card:#0b1a35cc; --txt:#eaf2ff; --mut:#a7b8d6;
+      --good:#22c55e;
     }
     body{
       margin:0; font-family:system-ui,Segoe UI,Roboto,Arial;
@@ -15,36 +15,25 @@
       background: radial-gradient(1200px 600px at 20% 10%, #163a6b 0%, transparent 60%),
                   radial-gradient(900px 600px at 70% 20%, #1a2f5a 0%, transparent 55%),
                   linear-gradient(180deg,var(--bg1),var(--bg2));
-      min-height:100vh;
-      display:flex; justify-content:center; padding:24px;
+      min-height:100vh; display:flex; justify-content:center; padding:24px;
     }
     .wrap{ width:min(1200px,100%); }
-    .top{
-      display:flex; align-items:center; justify-content:space-between;
-      gap:12px; margin-bottom:14px;
-    }
-    .title{
-      display:flex; align-items:center; gap:12px;
-      font-size:34px; font-weight:800;
-      letter-spacing:.2px;
-    }
+    .top{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .title{ display:flex; align-items:center; gap:12px; font-size:34px; font-weight:800; }
+    .sub{ color:var(--mut); margin-top:6px; line-height:1.35; }
     .pill{
       background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12);
       padding:10px 14px; border-radius:999px; color:var(--mut); font-weight:600;
     }
-    .grid{
-      display:grid; grid-template-columns: 420px 1fr;
-      gap:16px;
-    }
+    .grid{ display:grid; grid-template-columns: 420px 1fr; gap:16px; }
     .card{
-      background:var(--card);
+      background:rgba(11,26,53,.8);
       border:1px solid rgba(255,255,255,.10);
       border-radius:22px;
       box-shadow: 0 18px 40px rgba(0,0,0,.35);
       overflow:hidden;
     }
     .cardPad{ padding:18px; }
-    .sub{ color:var(--mut); margin-top:6px; line-height:1.35; }
     .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     button{
       cursor:pointer;
@@ -62,9 +51,7 @@
       padding:12px 12px; border-radius:14px;
       outline:none;
     }
-    .callBtn{
-      min-width:240px; display:flex; align-items:center; gap:10px; justify-content:center;
-    }
+    .callBtn{ min-width:240px; display:flex; align-items:center; gap:10px; justify-content:center; }
     .dot{ width:10px;height:10px;border-radius:999px;background:var(--good); box-shadow:0 0 14px rgba(34,197,94,.6); }
     .dot.off{ background:rgba(255,255,255,.25); box-shadow:none; }
     .statusLine{ margin-top:10px; color:var(--mut); font-weight:700; }
@@ -94,13 +81,7 @@
       align-items:center;
       justify-content:center;
     }
-    .avatarImg{
-      max-width:100%;
-      max-height:100%;
-      object-fit:cover;
-      transform: translateZ(0);
-      transition: filter .2s ease, transform .2s ease;
-    }
+    .avatarImg{ max-width:100%; max-height:100%; object-fit:cover; transition: filter .2s ease; }
     .badge{
       position:absolute; left:12px; top:12px;
       padding:6px 10px; border-radius:999px;
@@ -130,16 +111,11 @@
       transform: scaleY(0.35);
       transform-origin:center;
     }
-    /* Estados */
     .idle .badge{ color:#cfe1ff; }
     .listening .glow{ opacity:.7; }
-    .listening .avatarImg{ filter: drop-shadow(0 0 24px rgba(59,130,246,.35)); }
     .thinking .glow{ opacity:.7; }
-    .thinking .avatarImg{ filter: drop-shadow(0 0 24px rgba(251,191,36,.30)); }
     .speaking .glow{ opacity:.9; }
-    .speaking .avatarImg{ filter: drop-shadow(0 0 28px rgba(34,197,94,.40)); }
     .speaking .mouth{ opacity:.95; }
-    .hint{ font-size:13px; color:var(--mut); margin-top:10px; }
   </style>
 </head>
 
@@ -148,13 +124,12 @@
   <div class="top">
     <div>
       <div class="title">🎙️ Avatar Beta (Voz → IA → Voz)</div>
-      <div class="sub">Toca <b>Iniciar llamada</b>, habla, y se detiene por silencio (~0.7s). Vuelves a hablar y repite. (Beta: estable antes de tocar producción.)</div>
+      <div class="sub">Inicia llamada, habla, auto-stop por silencio (~0.7s) y repite.</div>
     </div>
     <div class="pill">API: <b>STT</b> | <b>CHAT</b> | <b>TTS</b></div>
   </div>
 
   <div class="grid">
-    <!-- IZQUIERDA -->
     <div class="card">
       <div class="cardPad">
         <div id="avatarCard" class="avatarBox idle">
@@ -166,7 +141,7 @@
 
         <div class="row" style="margin-top:12px;">
           <button id="btnCall" class="callBtn"><span id="callDot" class="dot off"></span><span id="callText">Iniciar llamada</span></button>
-          <select id="selMode" title="Modo">
+          <select id="selMode">
             <option value="coach">Coach</option>
             <option value="teacher">Teacher</option>
             <option value="friend">Friend</option>
@@ -181,23 +156,19 @@
         </div>
 
         <div class="row" style="margin-top:10px; width:100%;">
-          <select id="selMic" style="width:100%;" title="Micrófono"></select>
+          <select id="selMic" style="width:100%;"></select>
           <button id="btnMics">Actualizar mics</button>
         </div>
 
         <div class="statusLine" id="statusLine">Estado: idle</div>
-        <div class="hint">Si no marca nivel: revisa permisos del micro o selecciona otro mic. (En Windows a veces “default” miente.)</div>
       </div>
     </div>
 
-    <!-- DERECHA -->
     <div class="card">
       <div class="cardPad">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
           <div style="font-size:20px;font-weight:900;">Log</div>
-          <div class="row">
-            <span class="pill" id="pillState">idle</span>
-          </div>
+          <div class="pill" id="pillState">idle</div>
         </div>
 
         <div id="log" class="log" style="margin-top:10px;"></div>
@@ -210,12 +181,11 @@
   </div>
 </div>
 
-<!-- IMPORTANTE: pipeline y recorder antes del init -->
-<script src="/js/voicePipeline.js?v=1"></script>
-<script src="/js/voiceRecorder.js?v=1"></script>
+<!-- 🔥 IMPORTANTE: NO type="module". Y con cache-bust -->
+<script src="/js/voicePipeline.js?v=300"></script>
+<script src="/js/voiceRecorder.js?v=300"></script>
 
 <script>
-  // UI helpers
   const $ = (s)=>document.querySelector(s);
   const logEl = $("#log");
   const meterFill = $("#meterFill");
@@ -225,6 +195,7 @@
   const avatarState = $("#avatarState");
   const callDot = $("#callDot");
   const callText = $("#callText");
+  const mouth = $("#mouth");
 
   function now(){ return new Date().toLocaleTimeString(); }
   function addLog(msg){
@@ -233,7 +204,6 @@
   }
 
   function setState(state, label){
-    // Avatar states: idle/listening/thinking/speaking
     avatarCard.classList.remove("idle","listening","thinking","speaking");
     avatarCard.classList.add(state);
     avatarState.textContent = state;
@@ -241,7 +211,6 @@
     statusLine.textContent = "Estado: " + (label || state);
   }
 
-  // Exponer al recorder para logs/estado/medidor y lip-mock
   window.VX_UI = {
     addLog,
     setState,
@@ -250,17 +219,33 @@
       callDot.classList.toggle("off", !on);
       callText.textContent = on ? "Grabando... (toca para colgar)" : "Iniciar llamada";
     },
-    // speaking amplitude -> mouth scale
     setMouth(power){
-      const mouth = $("#mouth");
       const s = 0.35 + Math.min(1, Math.max(0,power)) * 1.25;
       mouth.style.transform = `scaleY(${s})`;
+      mouth.style.opacity = (power>0.02) ? "0.95" : "0.0";
     }
   };
 
-  // Botones
+  // Sanity check duro (para que no te vuelva a marear)
+  function bootCheck(){
+    const ok = {
+      VX_callStart: typeof window.VX_callStart,
+      VX_callStop: typeof window.VX_callStop,
+      VX_refreshMics: typeof window.VX_refreshMics,
+      VX_transcribeAudio: typeof window.VX_transcribeAudio,
+      VX_chat: typeof window.VX_chat,
+      VX_ttsSpeak: typeof window.VX_ttsSpeak
+    };
+    addLog("SYS: UI lista.");
+    addLog("SYS: BootCheck => " + JSON.stringify(ok));
+    if(ok.VX_callStart !== "function"){
+      addLog("SYS: ERROR: VX_callStart no cargó. Revisa /js/voiceRecorder.js (Network/404/ServiceWorker).");
+    }
+  }
+
   $("#btnClear").onclick = ()=>{ logEl.textContent=""; addLog("SYS: Limpio"); setState("idle","idle"); };
-  $("#btnMics").onclick  = async ()=>{ await window.VX_refreshMics(); };
+  $("#btnMics").onclick  = async ()=>{ try{ await window.VX_refreshMics(); } catch(e){ addLog("SYS: ERROR mics: " + (e?.message||e)); } };
+
   $("#btnTest").onclick  = async ()=>{
     const t = ($("#txtTest").value || "Hello test").trim();
     addLog("SYS: CHAT...");
@@ -278,17 +263,13 @@
     }
   };
 
-  // Llamada (auto-stop por silencio + loop)
   let callActive = false;
   $("#btnCall").onclick = async ()=>{
     try{
       if(!callActive){
         callActive = true;
         window.VX_UI.setCallUI(true);
-        await window.VX_callStart({
-          selMicEl: $("#selMic"),
-          modeEl: $("#selMode")
-        });
+        await window.VX_callStart({ selMicEl: $("#selMic"), modeEl: $("#selMode") });
       }else{
         callActive = false;
         window.VX_UI.setCallUI(false);
@@ -304,15 +285,18 @@
     }
   };
 
-  // Init
   (async ()=>{
-    addLog("SYS: UI lista.");
     setState("idle","idle");
-    await window.VX_refreshMics();
+    bootCheck();
+
+    // Para que SIEMPRE salgan mics: pide permiso con gesto: usa btnMics
+    // Pero intentamos listar de una:
+    try{ await window.VX_refreshMics(); }catch{}
   })();
 </script>
 </body>
 </html>
+
 
 
 
