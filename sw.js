@@ -1,13 +1,8 @@
-/* sw.js — Blindado contra 404 cacheados de JS/CSS
-   - NO intercepta scripts/estilos (ni aunque estén en subcarpetas)
-   - Network-first para navegación (HTML)
-   - Cache-first para assets “seguros” (imágenes, fuentes)
-*/
+/* sw.js — Blindado: NO cachea ni intercepta JS/CSS para evitar 404 viejos. */
 
-const CACHE_VERSION = "v18"; // <-- SÚBELO en cada cambio importante (v19, v20, etc.)
+const CACHE_VERSION = "v18"; // súbelo cada cambio importante (v19, v20...)
 const CACHE_NAME = `app-cache-${CACHE_VERSION}`;
 
-// Ajusta si tus iconos o manifest están en otra ruta
 const PRECACHE_URLS = [
   "/",
   "/index.html",
@@ -40,27 +35,22 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Solo GET
   if (req.method !== "GET") return;
 
-  // ✅ 1) NO tocar scripts/estilos (esto mata tu bug de raíz)
-  // request.destination funciona muy bien para distinguir tipos
-  const dest = req.destination; // "script", "style", "image", "font", "document", etc.
+  // ✅ NO interceptar JS/CSS (tu caso crítico)
   if (
-    dest === "script" ||
-    dest === "style" ||
+    url.pathname.startsWith("/js/") ||
     url.pathname.endsWith(".js") ||
-    url.pathname.endsWith(".css") ||
-    url.pathname.includes("/js/") // cubre subcarpetas tipo /app/js/...
+    url.pathname.endsWith(".css")
   ) {
-    return; // red directa, sin SW
+    return; // red directa
   }
 
-  // ✅ 2) No interceptar API
-  if (url.pathname.includes("/api/")) return;
+  // ✅ No interceptar API
+  if (url.pathname.startsWith("/api/")) return;
 
-  // ✅ 3) Navegación (HTML): Network-first con fallback
-  if (req.mode === "navigate" || dest === "document") {
+  // ✅ Navegación: network-first con fallback
+  if (req.mode === "navigate") {
     event.respondWith((async () => {
       try {
         const fresh = await fetch(req);
@@ -75,7 +65,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // ✅ 4) Assets seguros: cache-first
+  // ✅ Assets seguros: cache-first
   event.respondWith((async () => {
     const cached = await caches.match(req);
     if (cached) return cached;
@@ -86,5 +76,6 @@ self.addEventListener("fetch", (event) => {
     return fresh;
   })());
 });
+
 
 
