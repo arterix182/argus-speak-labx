@@ -1,56 +1,38 @@
-exports.handler = async (event)=> {
-  try{
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    if(!OPENAI_API_KEY) return json(500,{error:"Missing OPENAI_API_KEY"});
+// netlify/functions/chat.js
+export default async (req) => {
+  try {
+    if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
 
-    const body = JSON.parse(event.body || "{}");
-    const userText = (body.userText || "").trim();
-    const mode = (body.mode || "coach").trim();
-    if(!userText) return json(400,{error:"Missing userText"});
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return new Response(JSON.stringify({ error: "Missing OPENAI_API_KEY" }), { status: 500 });
 
-    const system = buildSystem(mode);
+    const { userText } = await req.json();
+    if (!userText) return new Response(JSON.stringify({ error: "Missing userText" }), { status: 400 });
+
+    const messages = [
+      { role: "system", content: "Eres un coach de inglés. Responde corto y útil. Corrige 1 cosa máximo y da 1 ejemplo." },
+      { role: "user", content: userText }
+    ];
 
     const r = await fetch("https://api.openai.com/v1/chat/completions", {
-      method:"POST",
-      headers:{
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type":"application/json"
-      },
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini",
-        temperature: 0.4,
-        messages: [
-          { role:"system", content: system },
-          { role:"user", content: userText }
-        ]
-      })
+        model: "gpt-4o-mini",
+        messages,
+        temperature: 0.6
+      }),
     });
 
-    const j = await r.json().catch(()=>({}));
-    if(!r.ok){
-      return json(500,{error:"CHAT failed", details:j});
-    }
-    const reply = j.choices?.[0]?.message?.content || "";
-    return json(200,{ reply });
+    const data = await r.json();
+    if (!r.ok) return new Response(JSON.stringify({ error: data }), { status: 500 });
 
-  }catch(e){
-    return json(500,{error:String(e && e.message ? e.message : e)});
+    const reply = data.choices?.[0]?.message?.content?.trim() || "";
+    return new Response(JSON.stringify({ reply }), { headers: { "Content-Type": "application/json" } });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
   }
 };
-
-function buildSystem(mode){
-  if(mode==="teacher"){
-    return "You are an English teacher. Correct the user briefly, then give 2 examples, then ask 1 quick question. Keep it concise.";
-  }
-  if(mode==="friend"){
-    return "You are a friendly bilingual English buddy. Reply in English, but give short Spanish hints when needed. Keep it natural.";
-  }
-  return "You are a strict but motivating English coach. Correct the user, explain the mistake simply, give examples, and propose a better sentence. Keep it short.";
-}
-
-function json(statusCode, obj){
-  return { statusCode, headers:{ "Content-Type":"application/json" }, body: JSON.stringify(obj) };
-}
 
 
 
