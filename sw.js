@@ -1,6 +1,6 @@
-/* sw.js — Blindado: NO cachea ni intercepta JS/CSS para evitar 404 viejos. */
+/* sw.js — Blindado: NO cachea ni intercepta JS/CSS para evitar 404 viejos */
 
-const CACHE_VERSION = "v18"; // súbelo cada cambio importante (v19, v20...)
+const CACHE_VERSION = "v18";
 const CACHE_NAME = `app-cache-${CACHE_VERSION}`;
 
 const PRECACHE_URLS = [
@@ -37,13 +37,13 @@ self.addEventListener("fetch", (event) => {
 
   if (req.method !== "GET") return;
 
-  // ✅ NO interceptar JS/CSS (tu caso crítico)
+  // ✅ NO interceptar JS/CSS
   if (
     url.pathname.startsWith("/js/") ||
     url.pathname.endsWith(".js") ||
     url.pathname.endsWith(".css")
   ) {
-    return; // red directa
+    return;
   }
 
   // ✅ No interceptar API
@@ -65,7 +65,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // ✅ Assets seguros: cache-first
+  // ✅ Assets: cache-first
   event.respondWith((async () => {
     const cached = await caches.match(req);
     if (cached) return cached;
@@ -76,6 +76,3 @@ self.addEventListener("fetch", (event) => {
     return fresh;
   })());
 });
-
-
-
