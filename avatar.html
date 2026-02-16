@@ -300,6 +300,52 @@
       try{ await refreshMics(); } catch(e){}
     })();
   </script>
+  <script>
+  async function VX_refreshMics() {
+    const sel = document.getElementById("micSelect");
+    if (!sel) return;
+
+    // 1) Pedimos permiso rápido (sin grabar nada)
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tmp.getTracks().forEach(t => t.stop());
+    } catch (e) {
+      console.warn("Mic permission denied", e);
+      sel.innerHTML = `<option value="">Permite micrófono</option>`;
+      return;
+    }
+
+    // 2) Ahora sí listamos devices (ya con labels)
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter(d => d.kind === "audioinput");
+
+    const saved = localStorage.getItem("VX_MIC") || "";
+    sel.innerHTML = "";
+
+    if (!mics.length) {
+      sel.innerHTML = `<option value="">No se detectan micrófonos</option>`;
+      return;
+    }
+
+    for (const m of mics) {
+      const opt = document.createElement("option");
+      opt.value = m.deviceId;
+      opt.textContent = m.label || `Mic ${mics.indexOf(m) + 1}`;
+      if (saved && m.deviceId === saved) opt.selected = true;
+      sel.appendChild(opt);
+    }
+
+    // setea el mic guardado
+    if (sel.value && window.VX_setMic) window.VX_setMic(sel.value);
+  }
+
+  // cambios en caliente (conectar/desconectar)
+  navigator.mediaDevices?.addEventListener?.("devicechange", VX_refreshMics);
+
+  // al cargar
+  window.addEventListener("load", VX_refreshMics);
+</script>
+
   <script src="/voicePipeline.js?v=1"></script>
   <script src="/voiceRecorder.js?v=1"></script>
 
