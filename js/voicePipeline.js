@@ -1,107 +1,114 @@
-(function(){
-  async function jsonOrThrow(r){
+/* voicePipeline.js
+   Expone EXACTAMENTE lo que la UI/recorder esperan:
+   - VX_chatReply(text, {mode})
+   - VX_ttsAudio(text) -> ArrayBuffer (mp3)
+   - VX_playAudio(arrayBuffer) -> reproduce
+   - VX_sttTranscribe(blob, {mimeType}) -> texto
+
+   Además deja alias compatibles con tu versión vieja:
+   - VX_chat === VX_chatReply
+   - VX_transcribeAudio === VX_sttTranscribe
+   - VX_ttsSpeak(text) = ttsAudio + playAudio
+*/
+
+(() => {
+  "use strict";
+
+  async function jsonOrThrow(r) {
     const txt = await r.text();
     try { return JSON.parse(txt); }
-    catch { throw new Error("Non-JSON response: " + txt.slice(0,120)); }
+    catch { throw new Error("Non-JSON response: " + txt.slice(0, 160)); }
   }
 
-  async function VX_chat(userText, mode){
+  async function VX_chatReply(userText, opts = {}) {
     const clean = (userText || "").trim();
-    if(!clean) throw new Error("Empty text");
+    if (!clean) throw new Error("Empty text");
+
     const r = await fetch("/api/chat", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ userText: clean, mode: mode || "coach" })
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ userText: clean, mode: opts.mode || "coach" })
     });
+
     const j = await jsonOrThrow(r);
-    if(!r.ok) throw new Error(j.error || "chat failed");
+    if (!r.ok) throw new Error(j.error || "chat failed");
     return (j.reply || "").trim();
   }
 
-  async function VX_transcribeAudio(blob){
-    if(!blob || !blob.size) throw new Error("Empty audio blob");
+  async function VX_sttTranscribe(blob, opts = {}) {
+    if (!blob || !blob.size) throw new Error("Empty audio blob");
+
     const fd = new FormData();
     fd.append("file", blob, "audio.webm");
-    fd.append("mimeType", blob.type || "audio/webm");
+    fd.append("mimeType", opts.mimeType || blob.type || "audio/webm");
 
-    const r = await fetch("/api/stt", { method:"POST", body: fd });
+    const r = await fetch("/api/stt", { method: "POST", body: fd, cache: "no-store" });
     const j = await jsonOrThrow(r);
-    if(!r.ok) throw new Error(j.error || "stt failed");
+    if (!r.ok) throw new Error(j.error || "stt failed");
     return (j.text || "").trim();
   }
 
-  async function VX_tts(text){
+  async function VX_ttsAudio(text) {
     const clean = (text || "").trim();
-    if(!clean) throw new Error("Empty TTS text");
+    if (!clean) throw new Error("Empty TTS text");
+
     const r = await fetch("/api/tts", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
       body: JSON.stringify({ text: clean })
     });
-    if(!r.ok){
-      const j = await jsonOrThrow(r).catch(()=>({error:"tts failed"}));
+
+    if (!r.ok) {
+      const j = await jsonOrThrow(r).catch(() => ({ error: "tts failed" }));
       throw new Error(j.error || "tts failed");
     }
+
     return await r.arrayBuffer();
   }
 
-  let audioCtx = null;
-  async function VX_ttsSpeak(text){
-    if(!audioCtx){
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if(audioCtx.state === "suspended"){
-      try{ await audioCtx.resume(); }catch{}
-    }
-
-    const buf = await VX_tts(text);
-    const blob = new Blob([buf], { type:"audio/mpeg" });
+  // Reproductor robusto (no depende de AudioContext)
+  async function VX_playAudio(arrayBuffer) {
+    if (!arrayBuffer) throw new Error("No audio buffer");
+    const blob = new Blob([arrayBuffer], { type: "audio/mpeg" });
     const url = URL.createObjectURL(blob);
 
-    const a = new Audio(url);
-    a.crossOrigin = "anonymous";
+    try {
+      const a = new Audio(url);
+      a.crossOrigin = "anonymous";
 
-    const src = audioCtx.createMediaElementSource(a);
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 1024;
-    src.connect(analyser);
-    analyser.connect(audioCtx.destination);
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    let raf = null;
-
-    const tick = ()=>{
-      analyser.getByteTimeDomainData(data);
-      let sum=0;
-      for(let i=0;i<data.length;i++){
-        const v = (data[i]-128)/128;
-        sum += v*v;
-      }
-      const rms = Math.sqrt(sum/data.length);
-      if(window.VX_UI && window.VX_UI.setMouth) window.VX_UI.setMouth(rms*2.2);
-      raf = requestAnimationFrame(tick);
-    };
-
-    await a.play().catch(()=>{});
-    tick();
-
-    await new Promise(res=>{
-      a.onended = res;
-      a.onerror = res;
-    });
-
-    if(raf) cancelAnimationFrame(raf);
-    if(window.VX_UI && window.VX_UI.setMouth) window.VX_UI.setMouth(0);
-    URL.revokeObjectURL(url);
+      // autoplay policy: intenta play y si falla, lanza error claro
+      await a.play();
+      await new Promise((res) => {
+        a.onended = res;
+        a.onerror = res;
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
 
-  window.VX_chat = VX_chat;
-  window.VX_transcribeAudio = VX_transcribeAudio;
+  async function VX_ttsSpeak(text) {
+    const buf = await VX_ttsAudio(text);
+    await VX_playAudio(buf);
+  }
+
+  // Exports nuevos (los que te faltan)
+  window.VX_chatReply = VX_chatReply;
+  window.VX_ttsAudio = VX_ttsAudio;
+  window.VX_playAudio = VX_playAudio;
+  window.VX_sttTranscribe = VX_sttTranscribe;
+
+  // Alias viejos (para no romper lo que ya tenías)
+  window.VX_chat = VX_chatReply;
+  window.VX_transcribeAudio = async (blob) => VX_sttTranscribe(blob, { mimeType: blob?.type || "audio/webm" });
   window.VX_ttsSpeak = VX_ttsSpeak;
 
   console.log("✅ voicePipeline loaded", {
-    VX_chat: typeof window.VX_chat,
-    VX_transcribeAudio: typeof window.VX_transcribeAudio,
-    VX_ttsSpeak: typeof window.VX_ttsSpeak
+    VX_chatReply: typeof window.VX_chatReply,
+    VX_ttsAudio: typeof window.VX_ttsAudio,
+    VX_playAudio: typeof window.VX_playAudio,
+    VX_sttTranscribe: typeof window.VX_sttTranscribe
   });
 })();
