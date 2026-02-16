@@ -17,7 +17,7 @@ export async function handler(event) {
     // Recomendación para “voz mujer muy real”:
     // - Modelo: tts-1-hd (calidad) o gpt-4o-mini-tts (más control de estilo)
     // - Voz: shimmer o nova (suelen percibirse femeninas; depende del oído)
-    const model = body?.model || "tts-1";   // ✅ más rápido
+    const model = body?.model || "tts-1-hd";   // ✅ más rápido
     const voice = body?.voice || "nova";    // ✅ voz NOVA
     const format = body?.format || "mp3";     // mp3, wav, aac, opus...
     const speed = typeof body?.speed === "number" ? body.speed : 1.0;
