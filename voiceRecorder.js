@@ -1,240 +1,276 @@
-// voiceRecorder.js
-// Conversación continua: getUserMedia -> MediaRecorder -> auto-stop por silencio -> pipeline -> vuelve a escuchar
 (function(){
-  function emitState(state){ window.dispatchEvent(new CustomEvent("VX_STATE",{detail:{state}})); window.dispatchEvent(new CustomEvent("VX_AVATAR",{detail:{state}})); }
-
-  let selectedDeviceId = "";
   let stream = null;
   let mediaRecorder = null;
+  let chunks = [];
+  let micId = "default";
+  let callRunning = false;
 
-  let audioCtx = null;
+  // VAD
+  let vadCtx = null;
   let analyser = null;
-  let data = null;
-  let rafId = null;
+  let vadData = null;
+  let vadRAF = null;
 
-  let callActive = false;
-  let busyTurn = false;
-
-  // Ajustes: silencio
-  let SILENCE_HOLD_MS = 800;      // silencio necesario para cortar
-  let START_THRESHOLD = 0.020;    // umbral para “ya está hablando”
-  let SILENCE_THRESHOLD = 0.012;  // umbral para considerar silencio
-
-  // callbacks desde index
-  let onUserText = ()=>{};
-  let onBotText = ()=>{};
-
-  function stopTracks(){
-    if(stream){
-      stream.getTracks().forEach(t=> t.stop());
-      stream = null;
-    }
-  }
-
-  async function ensureAudioContext(){
-    if(!audioCtx){
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if(audioCtx.state === "suspended"){
-      try{ await audioCtx.resume(); }catch{}
-    }
-  }
-
-  function levelLoop(){
-    if(!analyser) return;
-    analyser.getByteTimeDomainData(data);
-    // RMS
-    let sum = 0;
-    for(let i=0;i<data.length;i++){
-      const v = (data[i]-128)/128;
-      sum += v*v;
-    }
-    const rms = Math.sqrt(sum/data.length);
-    if(typeof window.VX_onLevel === "function") window.VX_onLevel(rms);
-    rafId = requestAnimationFrame(levelLoop);
-  }
+  function ui(){ return window.VX_UI || {}; }
+  function addLog(x){ ui().addLog && ui().addLog(x); }
+  function setState(s, label){ ui().setState && ui().setState(s, label); }
+  function setMeter(p){ ui().setMeter && ui().setMeter(p); }
 
   async function VX_refreshMics(){
-    // Enumerate sin permisos puede devolver labels vacíos; con permiso salen completos.
-    const devs = await navigator.mediaDevices.enumerateDevices();
-    return devs.filter(d=> d.kind==="audioinput").map(d=>({ deviceId:d.deviceId, label:d.label }));
-  }
+    addLog("SYS: Actualizando micrófonos...");
+    const sel = document.querySelector("#selMic");
+    if(!sel) return;
 
-  function VX_setMic(deviceId){
-    selectedDeviceId = deviceId || "";
-  }
+    // Permiso previo ayuda a listar nombres
+    try{
+      await navigator.mediaDevices.getUserMedia({ audio:true });
+    }catch{}
 
-  async function openMic(){
-    stopTracks();
-    await ensureAudioContext();
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter(d => d.kind === "audioinput");
 
-    const constraints = {
-      audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true
+    sel.innerHTML = "";
+    for(const d of mics){
+      const opt = document.createElement("option");
+      opt.value = d.deviceId;
+      opt.textContent = d.label || ("Mic " + d.deviceId.slice(0,6));
+      sel.appendChild(opt);
+    }
+    // Restore selection
+    const saved = localStorage.getItem("VX_MIC");
+    if(saved && [...sel.options].some(o=>o.value===saved)){
+      sel.value = saved;
+      micId = saved;
+    }else if(sel.options.length){
+      micId = sel.value;
+    }
+    sel.onchange = ()=>{
+      micId = sel.value;
+      localStorage.setItem("VX_MIC", micId);
+      addLog("SYS: Mic seleccionado = " + micId);
     };
-
-    // Esto pide permiso y “activa” el mic (necesario para que salga bien la lista)
-    stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-    // Analyser para nivel
-    const src = audioCtx.createMediaStreamSource(stream);
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 1024;
-    data = new Uint8Array(analyser.fftSize);
-    src.connect(analyser);
-
-    if(rafId) cancelAnimationFrame(rafId);
-    levelLoop();
+    addLog("SYS: Mics encontrados = " + mics.length);
   }
 
-  function detectSilenceAndStop(getRms){
-    let startedTalking = false;
-    let silenceSince = null;
+  function stopTracks(){
+    try{
+      if(stream){
+        stream.getTracks().forEach(t=>t.stop());
+      }
+    }catch{}
+    stream = null;
+  }
 
-    return new Promise((resolve)=>{
-      const t = setInterval(()=>{
-        if(!callActive || !mediaRecorder) { clearInterval(t); return resolve("stopped"); }
-        const rms = getRms();
+  function teardownVAD(){
+    try{ if(vadRAF) cancelAnimationFrame(vadRAF); }catch{}
+    vadRAF = null;
+    analyser = null;
+    vadData = null;
+    try{ if(vadCtx) vadCtx.close(); }catch{}
+    vadCtx = null;
+  }
 
-        if(!startedTalking){
-          if(rms >= START_THRESHOLD){
-            startedTalking = true;
-            silenceSince = null;
-          }
-          return;
-        }
-
-        if(rms < SILENCE_THRESHOLD){
-          if(silenceSince == null) silenceSince = Date.now();
-          if(Date.now() - silenceSince >= SILENCE_HOLD_MS){
-            clearInterval(t);
-            try{ mediaRecorder.stop(); }catch{}
-            resolve("silence");
-          }
-        } else {
-          silenceSince = null;
-        }
-      }, 80);
+  async function startStream(){
+    stopTracks();
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: micId && micId!=="default"
+        ? { deviceId: { exact: micId }, echoCancellation:true, noiseSuppression:true, autoGainControl:true }
+        : { echoCancellation:true, noiseSuppression:true, autoGainControl:true }
     });
+    return stream;
   }
 
-  function getRmsNow(){
-    if(!analyser) return 0;
-    analyser.getByteTimeDomainData(data);
-    let sum = 0;
-    for(let i=0;i<data.length;i++){
-      const v = (data[i]-128)/128;
+  function setupVAD(){
+    teardownVAD();
+    vadCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = vadCtx.createMediaStreamSource(stream);
+    analyser = vadCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    src.connect(analyser);
+    vadData = new Uint8Array(analyser.frequencyBinCount);
+  }
+
+  function getRms(){
+    analyser.getByteTimeDomainData(vadData);
+    let sum=0;
+    for(let i=0;i<vadData.length;i++){
+      const v = (vadData[i]-128)/128;
       sum += v*v;
     }
-    return Math.sqrt(sum/data.length);
+    return Math.sqrt(sum/vadData.length);
   }
 
+  // Graba 1 turno y auto-stop por silencio
   async function recordOneTurn(){
-    if(!callActive) return;
-    if(busyTurn) return;
-    busyTurn = true;
+    chunks = [];
+    await startStream();
+    setupVAD();
 
-    emitState("listening");
-
-    // MediaRecorder
-    const chunks = [];
     mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+    mediaRecorder.ondataavailable = (e)=>{ if(e.data && e.data.size) chunks.push(e.data); };
 
-    const done = new Promise((resolve, reject)=>{
-      mediaRecorder.ondataavailable = (e)=>{ if(e.data && e.data.size) chunks.push(e.data); };
-      mediaRecorder.onerror = (e)=> reject(e?.error || e);
-      mediaRecorder.onstop = ()=> resolve();
+    const STOP_SILENCE_MS = 700;
+    const CAL_MS = 300;
+    const MAX_MS = 12000;
+
+    let startedVoice = false;
+    let tStart = performance.now();
+    let tVoice = performance.now();
+    let noiseFloor = 0.01;
+
+    // Calibración ruido
+    const tCalStart = performance.now();
+    let calCount=0, calSum=0;
+
+    mediaRecorder.start(100);
+
+    setState("listening","Escuchando...");
+    addLog("SYS: Escuchando... (auto-stop por silencio)");
+
+    return await new Promise((resolve, reject)=>{
+      const stopNow = ()=>{
+        try{
+          if(mediaRecorder && mediaRecorder.state !== "inactive"){
+            mediaRecorder.stop();
+          }
+        }catch{}
+      };
+
+      mediaRecorder.onstop = ()=>{
+        teardownVAD();
+        stopTracks();
+        const blob = new Blob(chunks, { type:"audio/webm" });
+        resolve(blob);
+      };
+
+      mediaRecorder.onerror = (e)=>{ teardownVAD(); stopTracks(); reject(e.error || e); };
+
+      const tick = ()=>{
+        try{
+          const rms = getRms();
+          // meter visual
+          const pct = Math.min(100, Math.max(0, (rms * 2800))); // tuning
+          setMeter(pct);
+
+          // calibrate
+          if(performance.now() - tCalStart < CAL_MS){
+            calSum += rms; calCount++;
+            noiseFloor = (calSum / Math.max(1,calCount)) * 1.6;
+          }else{
+            const startThresh = Math.max(0.012, noiseFloor * 1.8);
+            const silenceThresh = Math.max(0.008, noiseFloor * 1.2);
+
+            if(!startedVoice && rms > startThresh){
+              startedVoice = true;
+              tVoice = performance.now();
+              addLog(`SYS: Calibrado. ruido=${noiseFloor.toFixed(3)} start=${startThresh.toFixed(3)} silence=${silenceThresh.toFixed(3)}`);
+            }
+
+            if(startedVoice){
+              if(rms < silenceThresh){
+                if(performance.now() - tVoice > STOP_SILENCE_MS){
+                  addLog("SYS: Auto-stop por silencio.");
+                  stopNow();
+                  return;
+                }
+              }else{
+                tVoice = performance.now();
+              }
+            }
+
+            if(performance.now() - tStart > MAX_MS){
+              addLog("SYS: Stop por tiempo máximo.");
+              stopNow();
+              return;
+            }
+          }
+
+          vadRAF = requestAnimationFrame(tick);
+        }catch(err){
+          reject(err);
+        }
+      };
+      tick();
     });
+  }
 
-    mediaRecorder.start(200); // timeslice
+  async function runLoop(mode){
+    // Loop de conversación continua mientras callRunning
+    while(callRunning){
+      // 1) STT
+      setState("listening","Escuchando...");
+      addLog("SYS: STT...");
+      const blob = await recordOneTurn();
+      if(!callRunning) break;
 
-    // auto-stop por silencio
-    await detectSilenceAndStop(getRmsNow);
-    await done;
+      const text = await window.VX_transcribeAudio(blob);
+      if(!text){
+        addLog("SYS: Habla al menos 1 segundo. Intenta de nuevo.");
+        continue;
+      }
+      addLog("YOU: " + text);
 
-    const blob = new Blob(chunks, { type:"audio/webm" });
+      // 2) CHAT
+      setState("thinking","Procesando...");
+      addLog("SYS: CHAT...");
+      const reply = await window.VX_chat(text, mode);
+      addLog("BOT: " + reply);
 
-    try{
-      emitState("thinking");
-      // STT
-      const userText = await window.VX_transcribeAudio(blob);
-      onUserText(userText);
-
-      // CHAT
-      const reply = await window.VX_chatReply(userText);
-      onBotText(reply);
-
-      // TTS
-      emitState("speaking");
+      // 3) TTS
+      setState("speaking","Hablando...");
+      addLog("SYS: TTS...");
       await window.VX_ttsSpeak(reply);
 
-      emitState("idle");
-    }catch(err){
-      emitState("idle");
-      throw err;
-    }finally{
-      busyTurn = false;
+      // vuelve a idle y repite
+      setState("idle","idle");
     }
   }
 
-  async function loopTurns(){
-    while(callActive){
-      try{
-        await recordOneTurn();
-        // mini pausa para que el navegador respire
-        await new Promise(r=>setTimeout(r, 120));
-      }catch(e){
-        // si falla STT/CHAT/TTS, seguimos escuchando (no matamos la llamada)
-        console.error(e);
-        if(typeof onBotText === "function") onBotText("⚠️ Error: " + (e?.message || e));
-        await new Promise(r=>setTimeout(r, 350));
-      }
-    }
-  }
+  async function VX_callStart({ selMicEl, modeEl }){
+    if(callRunning) return;
+    if(selMicEl && selMicEl.value) micId = selMicEl.value;
+    localStorage.setItem("VX_MIC", micId);
 
-  async function VX_callStart(opts={}){
-    if(callActive) return;
-    onUserText = opts.onUserText || (()=>{});
-    onBotText  = opts.onBotText  || (()=>{});
+    callRunning = true;
+    addLog("SYS: 📞 Llamada iniciada.");
+    setState("listening","listening");
 
-    if(typeof window.VX_transcribeAudio !== "function") throw new Error("Pipeline STT no cargó (VX_transcribeAudio).");
-    if(typeof window.VX_chatReply !== "function") throw new Error("Pipeline CHAT no cargó (VX_chatReply).");
-    if(typeof window.VX_ttsSpeak !== "function") throw new Error("Pipeline TTS no cargó (VX_ttsSpeak).");
+    // seguridad: si pipeline no existe, truena claro
+    if(typeof window.VX_transcribeAudio !== "function") throw new Error("VX_transcribeAudio missing");
+    if(typeof window.VX_chat !== "function") throw new Error("VX_chat missing");
+    if(typeof window.VX_ttsSpeak !== "function") throw new Error("VX_ttsSpeak missing");
 
-    callActive = true;
-
-    // abrir mic y arrancar loop
-    await openMic();
-
-    // refresca mics ya con permiso (labels correctos)
-    try{ await VX_refreshMics(); }catch{}
-
-    loopTurns(); // no await
+    const mode = (modeEl && modeEl.value) ? modeEl.value : "coach";
+    runLoop(mode).catch(e=>{
+      addLog("SYS: ERROR: " + (e?.message||e));
+      setState("idle","error");
+      callRunning = false;
+      ui().setCallUI && ui().setCallUI(false);
+    });
   }
 
   async function VX_callStop(){
-    callActive = false;
-    busyTurn = false;
-    try{ if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop(); }catch{}
-    mediaRecorder = null;
-
-    if(rafId) cancelAnimationFrame(rafId);
-    rafId = null;
-
+    callRunning = false;
+    try{
+      if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+    }catch{}
+    teardownVAD();
     stopTracks();
-    emitState("idle");
+    setMeter(0);
   }
 
-  // Export to window
+  // Export global
   window.VX_refreshMics = VX_refreshMics;
-  window.VX_setMic = VX_setMic;
   window.VX_callStart = VX_callStart;
   window.VX_callStop = VX_callStop;
 
   console.log("✅ voiceRecorder loaded", {
     VX_callStart: typeof window.VX_callStart,
+    VX_callStop: typeof window.VX_callStop,
     VX_refreshMics: typeof window.VX_refreshMics
   });
 })();
+
 
 
 
