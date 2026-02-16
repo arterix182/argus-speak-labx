@@ -80,10 +80,10 @@
 
     const payload = {
       text: t,
-      model: opts.model || "tts-1",     // calidad alta y consistente
+      model: opts.model || "tts-1-hd",     // calidad alta y consistente
       voice: opts.voice || "nova",      // suele percibirse femenina
       format: opts.format || "mp3",
-      speed: typeof opts.speed === "number" ? opts.speed : 1.05,
+      speed: typeof opts.speed === "number" ? opts.speed : 1.00,
       // Solo aplica si usas gpt-4o-mini-tts (tu tts.js ya lo maneja)
       instructions: opts.instructions
     };
