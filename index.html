@@ -25,7 +25,22 @@
     .meter{width:220px;height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;border:1px solid rgba(255,255,255,.12)}
     .bar{height:100%;width:0%}
     .avatarBox{background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.10);border-radius:18px;padding:12px}
-    video{width:100%;border-radius:14px;background:#000;display:block}
+#avatarImg{
+      width:100%;
+      border-radius:14px;
+      background:#000;
+      display:block;
+      transition: transform 180ms ease, filter 180ms ease, box-shadow 180ms ease;
+    }
+    #avatarImg.idle{filter:none;transform:scale(1);box-shadow:none}
+    #avatarImg.listening{transform:scale(1.01);box-shadow:0 0 22px rgba(68,255,136,.35)}
+    #avatarImg.thinking{transform:scale(1.015);filter:brightness(1.05) saturate(1.05);box-shadow:0 0 28px rgba(255,202,92,.28)}
+    #avatarImg.speaking{box-shadow:0 0 36px rgba(120,200,255,.40);animation:avatarPulse 520ms ease-in-out infinite}
+    @keyframes avatarPulse{
+      0%{transform:scale(1.01);filter:brightness(1.03)}
+      50%{transform:scale(1.03);filter:brightness(1.07)}
+      100%{transform:scale(1.01);filter:brightness(1.03)}
+    }
     .mini{opacity:.7;font-size:12px;margin-top:8px}
   </style>
 </head>
@@ -62,7 +77,7 @@
 
       <div class="grid">
         <div class="avatarBox">
-          <video id="avatarVid" playsinline muted loop autoplay></video>
+          <img id="avatarImg" src="/assets/avatar.png" alt="Avatar" />
           <div class="mini" id="avatarHint">Avatar: idle/listening/thinking/speaking (videos en /assets)</div>
         </div>
 
@@ -108,26 +123,17 @@
 
     // Eventos desde recorder/pipeline
     window.addEventListener("VX_STATE", (e)=> setState(e.detail?.state || "idle"));
-
-    // Avatar state driver
-    const avatar = document.getElementById("avatarVid");
-    const AV = {
-      idle: "/assets/avatar_idle.mp4",
-      listening: "/assets/avatar_listening.mp4",
-      thinking: "/assets/avatar_thinking.mp4",
-      speaking: "/assets/avatar_speaking.mp4",
-    };
+    // Avatar state driver (IMG + efectos)
+    const avatarImg = document.getElementById("avatarImg");
     function setAvatar(state){
-      const src = AV[state] || AV.idle;
-      if (!avatar.src.endsWith(src)) {
-        avatar.src = src;
-        avatar.play().catch(()=>{});
-      }
+      const s = state || "idle";
+      if (!avatarImg) return;
+      avatarImg.classList.remove("idle","listening","thinking","speaking");
+      avatarImg.classList.add(s);
     }
     window.addEventListener("VX_AVATAR", (e)=> setAvatar(e.detail?.state || "idle"));
     setAvatar("idle");
-
-    // UI wires
+// UI wires
     const micSelect = document.getElementById("micSelect");
     const lvlBar = document.getElementById("lvlBar");
 
@@ -214,6 +220,7 @@ console.error(e);
   </script>
 </body>
 </html>
+
 
 
 
