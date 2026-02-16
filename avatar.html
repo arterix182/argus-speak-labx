@@ -205,6 +205,8 @@
         <button id="btnTestText" class="btn small">Probar Chat (texto)</button>
         <button id="btnClear" class="btn small">Limpiar</button>
         <button id="btnForget" class="btn small">Borrar memoria</button>
+        <button id="btnMicTest" class="btn small">Probar mic (3s)</button>
+
       </div>
 
       <div class="row2">
@@ -349,6 +351,28 @@
       paintCall(false);
     }
   };
+  const meterFill = document.getElementById("meterFill");
+const btnMicTest = document.getElementById("btnMicTest");
+
+// Actualiza barra de nivel
+window.VX_onLevel = (p) => {
+  const pct = Math.max(0, Math.min(1, p || 0));
+  meterFill.style.width = Math.round(pct * 100) + "%";
+};
+
+// Botón de prueba real del micro
+btnMicTest.onclick = async () => {
+  try{
+    if (window.VX_unlockAudio) await window.VX_unlockAudio();
+    addLog("SYS: Ejecutando prueba mic 3s...");
+    const res = await window.VX_micTest3s();
+    addLog("SYS: Mic OK ✅ size=" + res.size);
+  }catch(e){
+    addLog("SYS: Mic FAIL ❌ " + (e?.message || e));
+    alert("Mic FAIL: " + (e?.message || e));
+  }
+};
+
 
   // Text test
   async function runTextTurn(){
