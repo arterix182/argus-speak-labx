@@ -441,7 +441,11 @@ $("btnTestText").onclick = async ()=>{
     setState("speaking","TTS...");
     const {buf, ct} = await VX_ttsAudio(reply);
     await VX_playAudioAndWait(buf, ct);
-    setState("idle","Listo");
+
+// Si la llamada sigue, volvemos a escuchar; si no, idle.
+if(callActive) setState("listening","Siguiente turno...");
+else setState("idle","Listo");
+
   }catch(e){
     console.error(e);
     addLog("SYS: ERROR: " + (e?.message || e));
