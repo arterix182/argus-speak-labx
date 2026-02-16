@@ -72,44 +72,54 @@
     return String(reply || "").trim();
   };
 
-  // ---------------- TTS (Browser SpeechSynthesis) ----------------
+  // ---------------- TTS (OpenAI /api/tts: voz consistente) ----------------
+  // Requiere netlify/functions/tts.js y OPENAI_API_KEY en Netlify.
   window.VX_ttsSpeak = async function (text, opts = {}) {
     const t = String(text || "").trim();
     if (!t) return;
 
-    if (!("speechSynthesis" in window)) {
-      console.warn("speechSynthesis not supported");
-      return;
-    }
+    const payload = {
+      text: t,
+      model: opts.model || "tts-1-hd",     // calidad alta y consistente
+      voice: opts.voice || "shimmer",      // suele percibirse femenina
+      format: opts.format || "mp3",
+      speed: typeof opts.speed === "number" ? opts.speed : 1.0,
+      // Solo aplica si usas gpt-4o-mini-tts (tu tts.js ya lo maneja)
+      instructions: opts.instructions
+    };
 
-    // Cancela cualquier voz previa
-    window.speechSynthesis.cancel();
-
-    const utter = new SpeechSynthesisUtterance(t);
-
-    // Idioma por defecto: inglés
-    // Si quieres que hable español: "es-MX"
-    utter.lang = opts.lang || "en-US";
-    utter.rate = typeof opts.rate === "number" ? opts.rate : 1.0;
-    utter.pitch = typeof opts.pitch === "number" ? opts.pitch : 1.0;
-    utter.volume = typeof opts.volume === "number" ? opts.volume : 1.0;
-
-    // Selección opcional de voz
-    const wantName = (opts.voiceName || "").toLowerCase();
-    const voices = window.speechSynthesis.getVoices?.() || [];
-    if (voices.length) {
-      const picked =
-        (wantName && voices.find(v => (v.name || "").toLowerCase().includes(wantName))) ||
-        voices.find(v => (v.lang || "").toLowerCase().startsWith((utter.lang || "").toLowerCase())) ||
-        voices[0];
-      if (picked) utter.voice = picked;
-    }
-
-    await new Promise((resolve) => {
-      utter.onend = () => resolve();
-      utter.onerror = () => resolve(); // no bloqueamos el flujo por TTS
-      window.speechSynthesis.speak(utter);
+    const r = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(payload),
     });
+
+    if (!r.ok) {
+      // Importante: deja el error legible en log
+      const errTxt = await r.text();
+      throw new Error(`TTS ${r.status}: ${errTxt}`);
+    }
+
+    // Netlify regresa audio como bytes (base64) con Content-Type de audio/*
+    const audioBlob = await r.blob();
+    if (!audioBlob || audioBlob.size === 0) {
+      throw new Error("TTS returned empty audio");
+    }
+
+    const url = URL.createObjectURL(audioBlob);
+    const a = new Audio(url);
+    a.preload = "auto";
+
+    try {
+      await a.play();
+      await new Promise((resolve) => {
+        a.onended = () => resolve();
+        a.onerror = () => resolve(); // no bloqueamos el flujo si el dispositivo falla al reproducir
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   };
 
   console.log("✅ voicePipeline loaded", {
@@ -119,4 +129,5 @@
     VX_ttsSpeak: typeof window.VX_ttsSpeak,
   });
 })();
+
 
