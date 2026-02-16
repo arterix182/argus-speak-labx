@@ -10,8 +10,8 @@
       --card:#0b1830cc; --card2:#0b1830a8;
       --txt:#eaf2ff; --mut:#9fb4d6;
       --br:#223a62; --br2:#1a2d4d;
-      --ok:#20d36b;
-      --shadow: 0 16px 60px rgba(0,0,0,.55);
+      --ok:#20d36b; --shadow: 0 16px 60px rgba(0,0,0,.55);
+      --r:18px;
     }
     *{box-sizing:border-box; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;}
     body{
@@ -19,8 +19,7 @@
       background: radial-gradient(1200px 700px at 30% 15%, #143463 0%, transparent 55%),
                   radial-gradient(1100px 700px at 75% 25%, #0f2a52 0%, transparent 50%),
                   linear-gradient(180deg, var(--bg1), var(--bg2));
-      min-height:100vh;
-      padding:24px;
+      min-height:100vh; padding:24px;
     }
     .wrap{max-width:1180px; margin:0 auto;}
     .top{
@@ -48,12 +47,7 @@
       color:#d9e7ff; font-size:13px;
       white-space:nowrap;
     }
-    .grid{
-      margin-top:18px;
-      display:grid;
-      grid-template-columns: 420px 1fr;
-      gap:18px;
-    }
+    .grid{ margin-top:18px; display:grid; grid-template-columns: 420px 1fr; gap:18px; }
     .card{
       border:1px solid var(--br2);
       background:linear-gradient(180deg, var(--card), var(--card2));
@@ -62,57 +56,37 @@
       padding:16px;
     }
     .avatarBox{
-      position:relative;
-      border-radius:18px;
-      overflow:hidden;
+      position:relative; border-radius:18px; overflow:hidden;
       border:1px solid rgba(255,255,255,.06);
-      background:#071328;
-      min-height:240px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
+      background:#071328; min-height:240px;
+      display:flex; align-items:center; justify-content:center;
     }
-    .avatarBox video,
-    .avatarBox img{
-      width:100%;
-      height:100%;
-      object-fit:cover;
-      display:block;
-    }
+    .avatarBox video,.avatarBox img{ width:100%; height:100%; object-fit:cover; display:block; }
     .stateChip{
       position:absolute; top:10px; left:10px;
       padding:6px 10px; border-radius:999px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(0,0,0,.28);
-      font-size:12px; color:#eaf2ff;
-      text-transform:lowercase;
+      font-size:12px; color:#eaf2ff; text-transform:lowercase;
     }
     .missing{
       position:absolute; bottom:10px; left:10px; right:10px;
-      padding:10px 12px;
-      border-radius:14px;
+      padding:10px 12px; border-radius:14px;
       border:1px solid rgba(255,255,255,.10);
       background:rgba(160,40,60,.28);
-      color:#ffe7ec;
-      font-size:13px;
-      display:none;
+      color:#ffe7ec; font-size:13px; display:none;
     }
     .btnRow{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;}
     .btn{
-      padding:12px 14px;
-      border-radius:14px;
+      padding:12px 14px; border-radius:14px;
       border:1px solid var(--br);
       background:linear-gradient(180deg,#0f2a52,#081a34);
-      color:var(--txt);
-      cursor:pointer;
-      font-weight:700;
+      color:var(--txt); cursor:pointer; font-weight:700;
       transition:transform .08s ease;
     }
     .btn:active{transform:translateY(1px);}
-    .btn.primary{
-      border-color:#2a4c83;
-      background:linear-gradient(180deg,#1b3f78,#0a1d3b);
-    }
+    .btn.primary{ border-color:#2a4c83; background:linear-gradient(180deg,#1b3f78,#0a1d3b); }
+    .btn.danger{ border-color:#6b2a3a; background:linear-gradient(180deg,#3a1120,#1b0710); }
     .btn.small{padding:10px 12px; font-weight:700;}
     .led{
       width:10px; height:10px; border-radius:999px;
@@ -124,47 +98,40 @@
 
     .row2{display:flex; gap:10px; align-items:center; margin-top:10px;}
     select{
-      width:100%;
-      padding:12px 12px;
-      border-radius:14px;
+      width:100%; padding:12px 12px; border-radius:14px;
       border:1px solid var(--br);
-      background:#071328;
-      color:var(--txt);
-      outline:none;
+      background:#071328; color:var(--txt); outline:none;
     }
+
+    .meterWrap{ margin-top:12px; display:flex; align-items:center; gap:10px; }
+    .meter{
+      flex:1; height:10px; border-radius:999px;
+      background:#071328; border:1px solid rgba(255,255,255,.08);
+      overflow:hidden;
+    }
+    .meter > i{ display:block; height:100%; width:0%; background:linear-gradient(90deg, #2de06d, #ffd24d, #ff4d6d); }
     .mut{color:var(--mut); font-size:12px;}
+
     .rightTop{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;}
     .tag{
-      padding:6px 10px;
-      border-radius:999px;
+      padding:6px 10px; border-radius:999px;
       border:1px solid rgba(255,255,255,.10);
       background:rgba(0,0,0,.18);
-      font-size:12px;
-      color:#dbe9ff;
-      text-transform:lowercase;
+      font-size:12px; color:#dbe9ff; text-transform:lowercase;
     }
     .logBox{
-      margin-top:10px;
-      border-radius:18px;
+      margin-top:10px; border-radius:18px;
       border:1px solid rgba(255,255,255,.08);
-      background:#061327;
-      padding:12px;
-      height:340px;
-      overflow:auto;
+      background:#061327; padding:12px;
+      height:340px; overflow:auto;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
-      font-size:13px;
-      line-height:1.45;
-      white-space:pre-wrap;
+      font-size:13px; line-height:1.45; white-space:pre-wrap;
     }
-    .inputRow{margin-top:12px; display:flex; gap:10px;}
+    .inputRow{ margin-top:12px; display:flex; gap:10px; }
     .inputRow input{
-      flex:1;
-      padding:12px 12px;
-      border-radius:14px;
+      flex:1; padding:12px 12px; border-radius:14px;
       border:1px solid var(--br);
-      background:#071328;
-      color:var(--txt);
-      outline:none;
+      background:#071328; color:var(--txt); outline:none;
     }
     .hint{margin-top:10px; color:var(--mut); font-size:12px;}
     @media (max-width: 980px){ .grid{grid-template-columns:1fr;} }
@@ -180,7 +147,7 @@
         <div class="badgeMic">🎙️</div>
         <div>
           <h1>Avatar Beta (Voz → IA → Voz)</h1>
-          <div class="sub">Toca el botón para hablar. Se detiene por silencio (~0.7s). Click de nuevo para colgar.</div>
+          <div class="sub">Inicia llamada, habla, auto-stop por silencio (~0.7s) y repite.</div>
         </div>
       </div>
     </div>
@@ -202,11 +169,10 @@
         <button id="btnCall" class="btn primary">
           <span id="callLed" class="led"></span><span id="callText">Iniciar llamada</span>
         </button>
+        <button id="btnMicTest" class="btn small">Probar mic (3s)</button>
         <button id="btnTestText" class="btn small">Probar Chat (texto)</button>
         <button id="btnClear" class="btn small">Limpiar</button>
-        <button id="btnForget" class="btn small">Borrar memoria</button>
-        <button id="btnMicTest" class="btn small">Probar mic (3s)</button>
-
+        <button id="btnForget" class="btn small danger">Borrar memoria</button>
       </div>
 
       <div class="row2">
@@ -217,8 +183,13 @@
         </select>
       </div>
 
+      <div class="meterWrap">
+        <div class="meter"><i id="meterFill"></i></div>
+        <div class="mut">Nivel</div>
+      </div>
+
       <div class="hint">
-        Micrófono: **automático (default del dispositivo)**. Sin selección, sin dramas.
+        Micrófono: automático (default del dispositivo). Sin selección, sin drama.
       </div>
     </div>
 
@@ -241,8 +212,8 @@
 </div>
 
 <!-- JS (orden IMPORTA) -->
-<script src="/js/voicePipeline.js?v=400"></script>
-<script src="/js/voiceRecorder.js?v=400"></script>
+<script src="/js/voicePipeline.js?v=500"></script>
+<script src="/js/voiceRecorder.js?v=500"></script>
 
 <script>
   const logEl = document.getElementById("log");
@@ -251,14 +222,15 @@
   const callLed = document.getElementById("callLed");
   const callText = document.getElementById("callText");
   const btnCall = document.getElementById("btnCall");
+  const btnMicTest = document.getElementById("btnMicTest");
   const btnClear = document.getElementById("btnClear");
   const btnForget = document.getElementById("btnForget");
   const btnTestText = document.getElementById("btnTestText");
   const btnSendText = document.getElementById("btnSendText");
   const textInput = document.getElementById("textInput");
   const modeSelect = document.getElementById("modeSelect");
+  const meterFill = document.getElementById("meterFill");
 
-  // Avatar
   const avatarVideo = document.getElementById("avatarVideo");
   const avatarImg = document.getElementById("avatarImg");
   const stateChip = document.getElementById("stateChip");
@@ -293,10 +265,8 @@
     try{
       const r = await fetch(src, { method:"HEAD", cache:"no-store" });
       if(!r.ok) throw new Error("missing");
-
       missingBox.style.display = "none";
       avatarImg.style.display = "none";
-
       avatarVideo.src = src;
       avatarVideo.loop = true;
       await avatarVideo.play().catch(()=>{});
@@ -310,7 +280,7 @@
     }
   }
 
-  // Callbacks desde recorder/pipeline
+  // Recorder callbacks
   window.VX_onState = async (s) => {
     if (s === "listening") setStatus("listening", "Escuchando… (silencio = stop)");
     if (s === "thinking")  setStatus("thinking", "Procesando…");
@@ -318,7 +288,14 @@
     if (s === "idle")      setStatus("idle", "Llamada detenida");
     await setAvatarState(s);
   };
+
   window.VX_onLog = (m) => addLog(m);
+
+  // Medidor
+  window.VX_onLevel = (p) => {
+    const pct = Math.max(0, Math.min(1, p || 0));
+    meterFill.style.width = Math.round(pct * 100) + "%";
+  };
 
   // Botón llamada
   let callActive = false;
@@ -332,49 +309,35 @@
     if (window.VX_unlockAudio) await window.VX_unlockAudio();
 
     if (!callActive){
-      const fn = window.VX_callStart;
-      if (typeof fn !== "function"){
+      if (typeof window.VX_callStart !== "function"){
         alert("No cargó VX_callStart. Revisa /js/voiceRecorder.js");
         return;
       }
       paintCall(true);
-
-      // ✅ SIN deviceId: siempre mic default del dispositivo
-      await fn().catch(err=>{
+      await window.VX_callStart({ mode: modeSelect.value }).catch(err=>{
         paintCall(false);
         alert("Falló voz/IA: " + (err?.message || err));
       });
-
     } else {
-      const fn = window.VX_callStop;
-      if (typeof fn === "function") await fn().catch(()=>{});
+      if (typeof window.VX_callStop === "function") await window.VX_callStop().catch(()=>{});
       paintCall(false);
     }
   };
-  const meterFill = document.getElementById("meterFill");
-const btnMicTest = document.getElementById("btnMicTest");
 
-// Actualiza barra de nivel
-window.VX_onLevel = (p) => {
-  const pct = Math.max(0, Math.min(1, p || 0));
-  meterFill.style.width = Math.round(pct * 100) + "%";
-};
+  // Mic test 3s (prueba definitiva)
+  btnMicTest.onclick = async () => {
+    try{
+      if (window.VX_unlockAudio) await window.VX_unlockAudio();
+      addLog("SYS: Ejecutando prueba mic 3s...");
+      const r = await window.VX_micTest3s();
+      addLog("SYS: Mic OK ✅ size=" + r.size + " type=" + r.type);
+    }catch(e){
+      addLog("SYS: Mic FAIL ❌ " + (e?.message || e));
+      alert("Mic FAIL: " + (e?.message || e));
+    }
+  };
 
-// Botón de prueba real del micro
-btnMicTest.onclick = async () => {
-  try{
-    if (window.VX_unlockAudio) await window.VX_unlockAudio();
-    addLog("SYS: Ejecutando prueba mic 3s...");
-    const res = await window.VX_micTest3s();
-    addLog("SYS: Mic OK ✅ size=" + res.size);
-  }catch(e){
-    addLog("SYS: Mic FAIL ❌ " + (e?.message || e));
-    alert("Mic FAIL: " + (e?.message || e));
-  }
-};
-
-
-  // Text test
+  // Text test (usa pipeline actual)
   async function runTextTurn(){
     try{
       await setAvatarState("thinking");
@@ -395,19 +358,12 @@ btnMicTest.onclick = async () => {
   btnTestText.onclick = runTextTurn;
   btnSendText.onclick = runTextTurn;
 
-  btnClear.onclick = () => {
-    logEl.textContent = "";
-    addLog("SYS: Log limpio.");
-  };
-  btnForget.onclick = () => {
-    localStorage.removeItem("VX_MEMORY");
-    addLog("SYS: Memoria borrada.");
-  };
+  btnClear.onclick = () => { logEl.textContent=""; addLog("SYS: Log limpio."); };
+  btnForget.onclick = () => { localStorage.removeItem("VX_MEMORY"); addLog("SYS: Memoria borrada."); };
 
   (async ()=>{
     addLog("SYS: UI lista.");
-    // Limpieza: ya no usamos VX_MIC
-    localStorage.removeItem("VX_MIC");
+    localStorage.removeItem("VX_MIC"); // ya no se usa
     await setAvatarState("idle");
   })();
 </script>
