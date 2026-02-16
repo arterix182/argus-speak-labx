@@ -1,7 +1,10 @@
 // voiceRecorder.js
 // Conversación continua: getUserMedia -> MediaRecorder -> auto-stop por silencio -> pipeline -> vuelve a escuchar
 (function(){
-  function emitState(state){ window.dispatchEvent(new CustomEvent("VX_STATE",{detail:{state}})); window.dispatchEvent(new CustomEvent("VX_AVATAR",{detail:{state}})); }
+  function emitState(state){
+    window.dispatchEvent(new CustomEvent("VX_STATE",{detail:{state}}));
+    window.dispatchEvent(new CustomEvent("VX_AVATAR",{detail:{state}}));
+  }
 
   let selectedDeviceId = "";
   let stream = null;
@@ -15,10 +18,17 @@
   let callActive = false;
   let busyTurn = false;
 
-  // Ajustes: silencio
-  let SILENCE_HOLD_MS = 800;      // silencio necesario para cortar
+  // ✅ Ajustes de silencio (REDUCEN la espera post-habla)
+  // Antes: 800ms (muy alto). Ahora: 420ms (se siente “inmediato” sin cortar palabras).
+  let SILENCE_HOLD_MS = 420;      // silencio necesario para cortar
   let START_THRESHOLD = 0.020;    // umbral para “ya está hablando”
   let SILENCE_THRESHOLD = 0.012;  // umbral para considerar silencio
+
+  // ✅ detector más rápido
+  const SILENCE_TICK_MS = 50;     // antes 80ms
+
+  // ✅ chunks más frecuentes (mejor “flush” al final)
+  const TIMESLICE_MS = 250;       // antes 200ms
 
   // callbacks desde index
   let onUserText = ()=>{};
@@ -55,7 +65,6 @@
   }
 
   async function VX_refreshMics(){
-    // Enumerate sin permisos puede devolver labels vacíos; con permiso salen completos.
     const devs = await navigator.mediaDevices.enumerateDevices();
     return devs.filter(d=> d.kind==="audioinput").map(d=>({ deviceId:d.deviceId, label:d.label }));
   }
@@ -72,7 +81,6 @@
       audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true
     };
 
-    // Esto pide permiso y “activa” el mic (necesario para que salga bien la lista)
     stream = await navigator.mediaDevices.getUserMedia(constraints);
 
     // Analyser para nivel
@@ -86,6 +94,18 @@
     levelLoop();
   }
 
+  function getRmsNow(){
+    if(!analyser) return 0;
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for(let i=0;i<data.length;i++){
+      const v = (data[i]-128)/128;
+      sum += v*v;
+    }
+    return Math.sqrt(sum/data.length);
+  }
+
+  // ✅ Cuando detecta silencio sostenido, hace requestData() y luego stop()
   function detectSilenceAndStop(getRms){
     let startedTalking = false;
     let silenceSince = null;
@@ -107,25 +127,28 @@
           if(silenceSince == null) silenceSince = Date.now();
           if(Date.now() - silenceSince >= SILENCE_HOLD_MS){
             clearInterval(t);
-            try{ mediaRecorder.stop(); }catch{}
-            resolve("silence");
+
+            // ✅ FLUSH: fuerza el último chunk ANTES de parar
+            try{ if(mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.requestData(); }catch{}
+
+            // pequeño delay para que el chunk “caiga” (reduce blobs vacíos)
+            setTimeout(()=>{
+              try{ if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop(); }catch{}
+              resolve("silence");
+            }, 30);
           }
         } else {
           silenceSince = null;
         }
-      }, 80);
+      }, SILENCE_TICK_MS);
     });
   }
 
-  function getRmsNow(){
-    if(!analyser) return 0;
-    analyser.getByteTimeDomainData(data);
-    let sum = 0;
-    for(let i=0;i<data.length;i++){
-      const v = (data[i]-128)/128;
-      sum += v*v;
-    }
-    return Math.sqrt(sum/data.length);
+  // ✅ Warm-up para evitar cold start (no rompe nada si falla)
+  async function warmUpApis(){
+    try { fetch("/api/stt", { method:"GET", cache:"no-store" }).catch(()=>{}); } catch {}
+    try { fetch("/api/chat", { method:"GET", cache:"no-store" }).catch(()=>{}); } catch {}
+    try { fetch("/api/tts", { method:"GET", cache:"no-store" }).catch(()=>{}); } catch {}
   }
 
   async function recordOneTurn(){
@@ -135,9 +158,13 @@
 
     emitState("listening");
 
-    // MediaRecorder
     const chunks = [];
-    mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+    // ✅ escoger mimeType soportado (evita blobs vacíos en algunos devices)
+    const preferred = ["audio/webm;codecs=opus", "audio/webm"];
+    const mimeType = preferred.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "audio/webm";
+
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
 
     const done = new Promise((resolve, reject)=>{
       mediaRecorder.ondataavailable = (e)=>{ if(e.data && e.data.size) chunks.push(e.data); };
@@ -145,16 +172,21 @@
       mediaRecorder.onstop = ()=> resolve();
     });
 
-    mediaRecorder.start(200); // timeslice
+    mediaRecorder.start(TIMESLICE_MS);
 
     // auto-stop por silencio
     await detectSilenceAndStop(getRmsNow);
     await done;
 
-    const blob = new Blob(chunks, { type:"audio/webm" });
+    const blob = new Blob(chunks, { type: mimeType });
 
     try{
       emitState("thinking");
+
+      // ✅ micro-feedback instantáneo: al menos “reacciona” ya
+      // (si no lo quieres, bórralo)
+      // onBotText("…");
+
       // STT
       const userText = await window.VX_transcribeAudio(blob);
       onUserText(userText);
@@ -180,13 +212,11 @@
     while(callActive){
       try{
         await recordOneTurn();
-        // mini pausa para que el navegador respire
-        await new Promise(r=>setTimeout(r, 120));
+        await new Promise(r=>setTimeout(r, 80)); // antes 120
       }catch(e){
-        // si falla STT/CHAT/TTS, seguimos escuchando (no matamos la llamada)
         console.error(e);
         if(typeof onBotText === "function") onBotText("⚠️ Error: " + (e?.message || e));
-        await new Promise(r=>setTimeout(r, 350));
+        await new Promise(r=>setTimeout(r, 250)); // antes 350
       }
     }
   }
@@ -202,11 +232,13 @@
 
     callActive = true;
 
-    // abrir mic y arrancar loop
     await openMic();
 
     // refresca mics ya con permiso (labels correctos)
     try{ await VX_refreshMics(); }catch{}
+
+    // ✅ evita cold start
+    warmUpApis();
 
     loopTurns(); // no await
   }
@@ -214,7 +246,14 @@
   async function VX_callStop(){
     callActive = false;
     busyTurn = false;
-    try{ if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop(); }catch{}
+
+    try{
+      if(mediaRecorder && mediaRecorder.state === "recording"){
+        // ✅ flush final si paras manualmente
+        try{ mediaRecorder.requestData(); }catch{}
+        mediaRecorder.stop();
+      }
+    }catch{}
     mediaRecorder = null;
 
     if(rafId) cancelAnimationFrame(rafId);
@@ -232,8 +271,12 @@
 
   console.log("✅ voiceRecorder loaded", {
     VX_callStart: typeof window.VX_callStart,
-    VX_refreshMics: typeof window.VX_refreshMics
+    VX_refreshMics: typeof window.VX_refreshMics,
+    SILENCE_HOLD_MS,
+    SILENCE_TICK_MS,
+    TIMESLICE_MS
   });
 })();
+
 
 
