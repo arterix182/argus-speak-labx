@@ -5,7 +5,6 @@
   let micId = "default";
   let callRunning = false;
 
-  // VAD
   let vadCtx = null;
   let analyser = null;
   let vadData = null;
@@ -18,13 +17,18 @@
 
   async function VX_refreshMics(){
     addLog("SYS: Actualizando micrófonos...");
+
     const sel = document.querySelector("#selMic");
     if(!sel) return;
 
-    // Permiso previo ayuda a listar nombres
+    // En algunos navegadores, labels solo aparecen tras permiso.
+    // Pedimos permiso aquí de forma segura.
     try{
-      await navigator.mediaDevices.getUserMedia({ audio:true });
-    }catch{}
+      const tmp = await navigator.mediaDevices.getUserMedia({ audio:true });
+      tmp.getTracks().forEach(t=>t.stop());
+    }catch(e){
+      addLog("SYS: Permiso mic no concedido aún (ok).");
+    }
 
     const devices = await navigator.mediaDevices.enumerateDevices();
     const mics = devices.filter(d => d.kind === "audioinput");
@@ -36,7 +40,7 @@
       opt.textContent = d.label || ("Mic " + d.deviceId.slice(0,6));
       sel.appendChild(opt);
     }
-    // Restore selection
+
     const saved = localStorage.getItem("VX_MIC");
     if(saved && [...sel.options].some(o=>o.value===saved)){
       sel.value = saved;
@@ -44,20 +48,18 @@
     }else if(sel.options.length){
       micId = sel.value;
     }
+
     sel.onchange = ()=>{
       micId = sel.value;
       localStorage.setItem("VX_MIC", micId);
       addLog("SYS: Mic seleccionado = " + micId);
     };
+
     addLog("SYS: Mics encontrados = " + mics.length);
   }
 
   function stopTracks(){
-    try{
-      if(stream){
-        stream.getTracks().forEach(t=>t.stop());
-      }
-    }catch{}
+    try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch{}
     stream = null;
   }
 
@@ -100,7 +102,6 @@
     return Math.sqrt(sum/vadData.length);
   }
 
-  // Graba 1 turno y auto-stop por silencio
   async function recordOneTurn(){
     chunks = [];
     await startStream();
@@ -118,7 +119,6 @@
     let tVoice = performance.now();
     let noiseFloor = 0.01;
 
-    // Calibración ruido
     const tCalStart = performance.now();
     let calCount=0, calSum=0;
 
@@ -129,11 +129,7 @@
 
     return await new Promise((resolve, reject)=>{
       const stopNow = ()=>{
-        try{
-          if(mediaRecorder && mediaRecorder.state !== "inactive"){
-            mediaRecorder.stop();
-          }
-        }catch{}
+        try{ if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop(); }catch{}
       };
 
       mediaRecorder.onstop = ()=>{
@@ -148,11 +144,9 @@
       const tick = ()=>{
         try{
           const rms = getRms();
-          // meter visual
-          const pct = Math.min(100, Math.max(0, (rms * 2800))); // tuning
+          const pct = Math.min(100, Math.max(0, (rms * 2800)));
           setMeter(pct);
 
-          // calibrate
           if(performance.now() - tCalStart < CAL_MS){
             calSum += rms; calCount++;
             noiseFloor = (calSum / Math.max(1,calCount)) * 1.6;
@@ -170,8 +164,7 @@
               if(rms < silenceThresh){
                 if(performance.now() - tVoice > STOP_SILENCE_MS){
                   addLog("SYS: Auto-stop por silencio.");
-                  stopNow();
-                  return;
+                  stopNow(); return;
                 }
               }else{
                 tVoice = performance.now();
@@ -180,8 +173,7 @@
 
             if(performance.now() - tStart > MAX_MS){
               addLog("SYS: Stop por tiempo máximo.");
-              stopNow();
-              return;
+              stopNow(); return;
             }
           }
 
@@ -195,9 +187,7 @@
   }
 
   async function runLoop(mode){
-    // Loop de conversación continua mientras callRunning
     while(callRunning){
-      // 1) STT
       setState("listening","Escuchando...");
       addLog("SYS: STT...");
       const blob = await recordOneTurn();
@@ -210,24 +200,22 @@
       }
       addLog("YOU: " + text);
 
-      // 2) CHAT
       setState("thinking","Procesando...");
       addLog("SYS: CHAT...");
       const reply = await window.VX_chat(text, mode);
       addLog("BOT: " + reply);
 
-      // 3) TTS
       setState("speaking","Hablando...");
       addLog("SYS: TTS...");
       await window.VX_ttsSpeak(reply);
 
-      // vuelve a idle y repite
       setState("idle","idle");
     }
   }
 
   async function VX_callStart({ selMicEl, modeEl }){
     if(callRunning) return;
+
     if(selMicEl && selMicEl.value) micId = selMicEl.value;
     localStorage.setItem("VX_MIC", micId);
 
@@ -235,7 +223,6 @@
     addLog("SYS: 📞 Llamada iniciada.");
     setState("listening","listening");
 
-    // seguridad: si pipeline no existe, truena claro
     if(typeof window.VX_transcribeAudio !== "function") throw new Error("VX_transcribeAudio missing");
     if(typeof window.VX_chat !== "function") throw new Error("VX_chat missing");
     if(typeof window.VX_ttsSpeak !== "function") throw new Error("VX_ttsSpeak missing");
@@ -251,15 +238,12 @@
 
   async function VX_callStop(){
     callRunning = false;
-    try{
-      if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
-    }catch{}
+    try{ if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop(); }catch{}
     teardownVAD();
     stopTracks();
     setMeter(0);
   }
 
-  // Export global
   window.VX_refreshMics = VX_refreshMics;
   window.VX_callStart = VX_callStart;
   window.VX_callStop = VX_callStop;
@@ -270,6 +254,7 @@
     VX_refreshMics: typeof window.VX_refreshMics
   });
 })();
+
 
 
 
