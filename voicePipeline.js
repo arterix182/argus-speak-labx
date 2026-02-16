@@ -1,127 +1,140 @@
-/* voicePipeline.js (PRO)
-   Endpoints:
-   - POST /api/stt  (multipart/form-data: file)
-   - POST /api/chat (json: { userText, mode? })
-   - POST /api/tts  (json: { text })
+/* js/voicePipeline.js
+   STT -> CHAT -> TTS helpers (Netlify Functions)
 */
-
 (function () {
-  // ---------- Helpers ----------
-  function vxSetState(state) {
-    try {
-      if (typeof window.VX_setAvatarState === "function") window.VX_setAvatarState(state);
-    } catch (_) {}
+  async function VX_blobToBase64(blob) {
+    const ab = await blob.arrayBuffer();
+    const bytes = new Uint8Array(ab);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
   }
 
-  async function safeJson(res) {
-    const text = await res.text();
-    try { return JSON.parse(text); }
-    catch { return { error: "Non-JSON response", raw: text.slice(0, 500) }; }
-  }
-
-  // ---------- STT (multipart/form-data) ----------
+  // STT: intenta multipart primero; si falla, usa JSON base64 (server acepta ambos)
   async function VX_transcribeAudio(blob) {
     if (!blob) throw new Error("No audio blob");
+    const url = "/api/stt";
 
-    vxSetState("thinking");
-
-    const fd = new FormData();
-    // nombre "file" para que tu Netlify Function lo lea fácil
-    fd.append("file", blob, "audio.webm");
-
-    const r = await fetch("/api/stt", {
-      method: "POST",
-      body: fd,
-    });
-
-    const j = await safeJson(r);
-    if (!r.ok) throw new Error(JSON.stringify(j));
-    return (j.text || "").trim();
+    // 1) multipart/form-data
+    try {
+      const fd = new FormData();
+      fd.append("file", blob, "audio.webm");
+      const r = await fetch(url, { method: "POST", body: fd });
+      const j = await r.json().catch(async () => ({ error: await r.text() }));
+      if (!r.ok) throw new Error(JSON.stringify(j));
+      return (j.text || "").trim();
+    } catch (e) {
+      // 2) JSON base64 fallback
+      const audioBase64 = await VX_blobToBase64(blob);
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audioBase64, mimeType: blob.type || "audio/webm" }),
+      });
+      const j = await r.json().catch(async () => ({ error: await r.text() }));
+      if (!r.ok) throw new Error(JSON.stringify(j));
+      return (j.text || "").trim();
+    }
   }
 
-  // ---------- CHAT ----------
-  async function VX_chatReply(userText, mode = "coach") {
+  // Chat (con "memoria" ligera local)
+  async function VX_chatReply(userText, opts = {}) {
     const clean = (userText || "").trim();
-    if (!clean) throw new Error("Empty userText");
+    if (!clean) throw new Error("Empty user text");
 
-    vxSetState("thinking");
+    const mode = opts.mode || "coach";
+    const memory = JSON.parse(localStorage.getItem("VX_MEMORY") || "[]");
 
+    const payload = { userText: clean, mode, memory };
     const r = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userText: clean, mode }),
+      body: JSON.stringify(payload),
     });
 
-    const j = await safeJson(r);
+    const j = await r.json().catch(async () => ({ error: await r.text() }));
     if (!r.ok) throw new Error(JSON.stringify(j));
-    return (j.reply || j.text || "").trim();
+
+    // guarda memoria (cap)
+    const nextMem = Array.isArray(j.memory) ? j.memory : memory;
+    localStorage.setItem("VX_MEMORY", JSON.stringify(nextMem.slice(-14)));
+
+    return (j.reply || "").trim();
   }
 
-  // ---------- TTS ----------
+  // TTS devuelve ArrayBuffer (audio/mpeg)
   async function VX_ttsAudio(text) {
     const clean = (text || "").trim();
     if (!clean) throw new Error("Empty text");
-
     const r = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: clean }),
     });
 
-    if (!r.ok) {
-      const j = await safeJson(r);
-      throw new Error(JSON.stringify(j));
-    }
-
-    return await r.arrayBuffer(); // audio bytes
+    if (!r.ok) throw new Error(await r.text());
+    return await r.arrayBuffer();
   }
 
-  // ---------- AUDIO PLAY (speaking sync) ----------
-  async function VX_playAudio(arrayBuf) {
-    if (!arrayBuf) throw new Error("No audio buffer");
+  // Playback robusto
+  let currentAudio = null;
 
-    // speaking cuando empieza
-    vxSetState("speaking");
+  async function VX_playAudio(buf) {
+    if (!buf) throw new Error("No audio buffer");
+    // detén anterior
+    try {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.src = "";
+        currentAudio = null;
+      }
+    } catch {}
 
-    const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+    const blob = new Blob([buf], { type: "audio/mpeg" });
     const url = URL.createObjectURL(blob);
     const a = new Audio(url);
+    currentAudio = a;
 
-    // iOS/Chrome: si está bloqueado, al menos no crashea
-    a.onended = () => {
+    await a.play().catch((e) => {
       URL.revokeObjectURL(url);
-      vxSetState("idle");
-    };
-    a.onerror = () => {
-      URL.revokeObjectURL(url);
-      vxSetState("idle");
-    };
-
-    // Reproduce
-    try {
-      await a.play();
-    } catch (e) {
-      // Si el navegador bloquea autoplay, volvemos a idle y soltamos error
-      vxSetState("idle");
       throw e;
-    }
+    });
 
-    return a; // por si quieres detenerlo
+    await new Promise((res) => {
+      a.onended = () => res();
+      a.onerror = () => res();
+    });
+
+    URL.revokeObjectURL(url);
+    currentAudio = null;
   }
 
-  // Exponer (IMPORTANTE: nombres estables)
+  // Desbloqueo audio para autoplay policies (Edge/Chrome)
+  async function VX_unlockAudio() {
+    try {
+      const a = new Audio();
+      a.src = "data:audio/mp3;base64,//uQZAAAAAAAAAAAAAA=="; // dummy corto
+      await a.play().catch(() => {});
+      a.pause();
+    } catch {}
+  }
+
+  // Exports globales
   window.VX_transcribeAudio = VX_transcribeAudio;
   window.VX_chatReply = VX_chatReply;
   window.VX_ttsAudio = VX_ttsAudio;
   window.VX_playAudio = VX_playAudio;
+  window.VX_unlockAudio = VX_unlockAudio;
 
   console.log("✅ voicePipeline loaded", {
-    stt: typeof window.VX_transcribeAudio,
+    transcribe: typeof window.VX_transcribeAudio,
     chat: typeof window.VX_chatReply,
     tts: typeof window.VX_ttsAudio,
     play: typeof window.VX_playAudio,
   });
 })();
+
+
 
 
 
