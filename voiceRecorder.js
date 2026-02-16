@@ -1,6 +1,5 @@
-/* /js/voiceRecorder.js
-   Grabación + selección de micrófono (robusto).
-   Exporta funciones globales VX_* para tu app.
+/* voiceRecorder.js
+   Grabación + selección de micrófono (robusto) con fallback cuando el deviceId exacto falla.
 */
 (() => {
   "use strict";
@@ -14,10 +13,7 @@
     lastDevices: [],
   };
 
-  // ====== UTILIDADES ======
   function logSYS(msg) {
-    // Si tienes tu logger propio, puedes reemplazar esto.
-    // Mantengo console para que siempre exista.
     console.log(`[VX] ${msg}`);
     if (window.appendLog) window.appendLog(`SYS: ${msg}`);
   }
@@ -29,13 +25,10 @@
 
   async function safeStopStream(stream) {
     if (!stream) return;
-    try {
-      stream.getTracks().forEach(t => t.stop());
-    } catch (e) {}
+    try { stream.getTracks().forEach(t => t.stop()); } catch {}
   }
 
   async function requestMicPermission() {
-    // Esto es CLAVE: sin permiso, enumerateDevices no muestra labels.
     try {
       const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
       await safeStopStream(tmp);
@@ -57,34 +50,6 @@
     return mics;
   }
 
-  async function buildAudioConstraints(deviceId) {
-    // Mantén simple: deviceId si se proporciona.
-    if (!deviceId) return { audio: true };
-    return { audio: { deviceId: { exact: deviceId } } };
-  }
-
-  async function startStream(deviceId) {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("getUserMedia() no está disponible en este navegador.");
-    }
-
-    // Detener lo anterior
-    await safeStopStream(state.stream);
-    state.stream = null;
-
-    const constraints = await buildAudioConstraints(deviceId);
-
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    state.stream = stream;
-
-    // deviceId real (a veces el browser asigna otro)
-    const track = stream.getAudioTracks()[0];
-    const settings = track?.getSettings?.() || {};
-    state.currentDeviceId = settings.deviceId || deviceId || null;
-
-    return stream;
-  }
-
   function canRecord() {
     return typeof MediaRecorder !== "undefined";
   }
@@ -92,7 +57,6 @@
   function makeRecorder(stream) {
     if (!canRecord()) throw new Error("MediaRecorder no está soportado en este navegador.");
 
-    // Algunos navegadores requieren mimeType compatible. Probamos opciones.
     const preferred = [
       "audio/webm;codecs=opus",
       "audio/webm",
@@ -115,12 +79,9 @@
       if (e.data && e.data.size > 0) state.chunks.push(e.data);
     };
 
-    mr.onerror = (e) => {
-      logERR("MediaRecorder error.", e?.error || e);
-    };
-
+    mr.onerror = (e) => logERR("MediaRecorder error.", e?.error || e);
     mr.onstart = () => logSYS("Grabación iniciada.");
-    mr.onstop = () => logSYS("Grabación detenida.");
+    mr.onstop  = () => logSYS("Grabación detenida.");
 
     return mr;
   }
@@ -131,6 +92,46 @@
     return new Blob(state.chunks, { type });
   }
 
+  async function startStreamWithFallback(deviceId) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("getUserMedia() no está disponible en este navegador.");
+    }
+
+    await safeStopStream(state.stream);
+    state.stream = null;
+
+    // 1) Intento con deviceId exacto (solo si viene uno real)
+    if (deviceId && deviceId !== "default" && deviceId !== "communications") {
+      try {
+        const streamExact = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: deviceId } }
+        });
+        state.stream = streamExact;
+        const track = streamExact.getAudioTracks()[0];
+        const settings = track?.getSettings?.() || {};
+        state.currentDeviceId = settings.deviceId || deviceId || null;
+        return streamExact;
+      } catch (e) {
+        // ✅ Aquí está el cambio: si falla por overconstrained/notfound, hacemos fallback
+        if (e?.name === "OverconstrainedError" || e?.name === "NotFoundError") {
+          logSYS(`Mic exacto no disponible (${e.name}). Fallback a mic por defecto.`);
+        } else {
+          throw e; // otros errores sí los respetamos
+        }
+      }
+    }
+
+    // 2) Fallback: audio:true (el navegador elige)
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    state.stream = stream;
+
+    const track = stream.getAudioTracks()[0];
+    const settings = track?.getSettings?.() || {};
+    state.currentDeviceId = settings.deviceId || null;
+
+    return stream;
+  }
+
   // ====== API GLOBAL ======
   window.VX_refreshMics = async function VX_refreshMics() {
     logSYS("VX_refreshMics()");
@@ -138,8 +139,6 @@
     if (!ok) return { ok: false, error: "permission_denied", mics: [] };
 
     const mics = await listMics();
-
-    // Normaliza nombres
     const clean = mics.map((d, idx) => ({
       deviceId: d.deviceId,
       label: d.label || `Micrófono ${idx + 1}`,
@@ -150,7 +149,6 @@
     return { ok: true, mics: clean };
   };
 
-  // Inicia grabación (opcional: deviceId)
   window.VX_callStart = async function VX_callStart(deviceId = null) {
     try {
       logSYS(`VX_callStart(${deviceId || "default"})`);
@@ -158,11 +156,10 @@
       const ok = await requestMicPermission();
       if (!ok) return { ok: false, error: "permission_denied" };
 
-      const stream = await startStream(deviceId);
+      const stream = await startStreamWithFallback(deviceId);
 
-      // Si tu app solo quiere "usar micrófono" sin grabar, puedes omitir recorder.
       state.mediaRecorder = makeRecorder(stream);
-      state.mediaRecorder.start(250); // chunk cada 250ms
+      state.mediaRecorder.start(250);
       state.isRecording = true;
 
       return {
@@ -179,7 +176,6 @@
     }
   };
 
-  // Detiene grabación y devuelve blob
   window.VX_callStop = async function VX_callStop() {
     try {
       logSYS("VX_callStop()");
@@ -192,37 +188,7 @@
       }
 
       const mr = state.mediaRecorder;
-
-      const stopped = new Promise((resolve) => {
-        mr.onstop = () => resolve(true);
-      });
-
-      if (mr.state !== "inactive") mr.stop();
-      await stopped;
-
-      const blob = getBlob();
-      const mimeType = mr.mimeType || (blob ? blob.type : null);
-
-      state.mediaRecorder = null;
-      state.isRecording = false;
-
-      await safeStopStream(state.stream);
-      state.stream = null;
-
-      return { ok: true, blob, mimeType };
-    } catch (e) {
-      logERR("VX_callStop falló.", e);
-      state.mediaRecorder = null;
-      state.isRecording = false;
-      await safeStopStream(state.stream);
-      state.stream = null;
-      return { ok: false, error: e.message || String(e) };
-    }
-  };
-
-  // Auto-log para confirmar carga correcta
-  logSYS("voiceRecorder.js cargado ✅ (VX_callStart/VX_callStop/VX_refreshMics listos)");
-})();
+      const stopped = new Promise((resolve) => { mr.onstop = () => resolve(true); });
 
 
 
