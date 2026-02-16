@@ -440,35 +440,15 @@
     // ===== Call =====
     let callActive = false;
 
-    btnCall.onclick = async ()=>{
-      if(!callActive){
-        callActive = true;
-        setCallUI(true);
-        addLog("SYS: 📞 Llamada iniciada.");
-        setState("listening","Habla… (silencio = stop)");
+    btnCall.onclick = async () => {
+  const fn = window.VX_callStart || window.VX_startCall || window.VX_startRecording || window.VX_start;
+  if (!fn) {
+    alert("No cargó voiceRecorder.js (no existe función de inicio). Revisa <script src=...>.");
+    return;
+  }
+  await fn();
+};
 
-        await setAvatarState("listening");
-
-        await window.VX_callStart({
-          mode: modeSel.value,
-          onLog: addLog,
-          onState: async (s)=>{
-            const ss = (s||"").toLowerCase();
-
-            if(ss==="listening")  await setAvatarState("listening");
-            else if(ss==="thinking") await setAvatarState("thinking");
-            else if(ss==="speaking") await setAvatarState("speaking");
-            else if(ss==="error") await setAvatarState("error");
-            else await setAvatarState("idle");
-
-            if(ss==="listening") setState("listening","Habla… (silencio = stop)");
-            else if(ss==="thinking") setState("thinking","Procesando…");
-            else if(ss==="speaking") setState("speaking","Respondiendo…");
-            else if(ss==="idle") setState("idle","Listo para el siguiente turno…");
-            else if(ss==="error") setState("error","Revisa consola");
-            else setState(ss,"");
-          }
-        });
 
         // Si se sale por stop/error, normalizamos UI
         callActive = false;
