@@ -1,11 +1,11 @@
-/* voiceRecorder.js
-   Grabación + selección de micrófono (robusto) con fallback cuando deviceId exact falla.
+/* voiceRecorder.js (DEFAULT MIC ONLY)
+   Siempre usa el micrófono disponible del dispositivo:
+   navigator.mediaDevices.getUserMedia({ audio: true })
+
    Expone:
-     - VX_refreshMics() -> {ok, mics}
-     - VX_setMic(deviceId)
-     - VX_callStart(deviceId?)
+     - VX_callStart()
      - VX_callStop()
-   Callbacks (si existen):
+   Callbacks:
      - window.VX_onLog(msg)
      - window.VX_onState(state)
 */
@@ -16,190 +16,103 @@
     stream: null,
     mediaRecorder: null,
     chunks: [],
-    currentDeviceId: "",
-    chosenDeviceId: "",
     isRecording: false,
   };
 
-  function logSYS(msg) {
-    console.log(`[VX] ${msg}`);
-    if (typeof window.VX_onLog === "function") window.VX_onLog(`SYS: ${msg}`);
+  function log(msg){
+    console.log("[VX]", msg);
+    if (typeof window.VX_onLog === "function") window.VX_onLog(msg);
   }
 
-  function logERR(msg, err) {
-    console.error(`[VX] ${msg}`, err || "");
-    if (typeof window.VX_onLog === "function") window.VX_onLog(`SYS: ERROR: ${msg}${err ? " | " + (err.message || err) : ""}`);
-  }
-
-  async function setState(s) {
-    if (typeof window.VX_onState === "function") {
+  async function setState(s){
+    if (typeof window.VX_onState === "function"){
       try { await window.VX_onState(s); } catch {}
     }
   }
 
-  async function safeStopStream(stream) {
-    if (!stream) return;
-    try { stream.getTracks().forEach(t => t.stop()); } catch {}
+  async function stopStream(){
+    if (!state.stream) return;
+    try { state.stream.getTracks().forEach(t => t.stop()); } catch {}
+    state.stream = null;
   }
 
-  async function requestMicPermission() {
-    try {
-      const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
-      await safeStopStream(tmp);
-      return true;
-    } catch (e) {
-      logERR("Permiso de micrófono DENEGADO o bloqueado.", e);
-      return false;
-    }
-  }
-
-  async function listMicsRaw() {
-    if (!navigator.mediaDevices?.enumerateDevices) return [];
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    return devices.filter(d => d.kind === "audioinput");
-  }
-
-  function chooseRecorderOptions() {
+  function chooseRecorderOptions(){
     const preferred = [
       "audio/webm;codecs=opus",
       "audio/webm",
       "audio/ogg;codecs=opus",
       "audio/ogg"
     ];
-    let options = {};
-    for (const mt of preferred) {
-      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mt)) {
-        options = { mimeType: mt };
-        break;
-      }
+    for (const mt of preferred){
+      if (window.MediaRecorder?.isTypeSupported?.(mt)) return { mimeType: mt };
     }
-    return options;
+    return {};
   }
 
-  function makeRecorder(stream) {
-    if (typeof MediaRecorder === "undefined") {
+  function makeRecorder(stream){
+    if (typeof MediaRecorder === "undefined"){
       throw new Error("MediaRecorder no está soportado en este navegador.");
     }
-
     const mr = new MediaRecorder(stream, chooseRecorderOptions());
     state.chunks = [];
 
     mr.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) state.chunks.push(e.data);
     };
-    mr.onerror = (e) => logERR("MediaRecorder error.", e?.error || e);
-    mr.onstart = () => logSYS("Grabación iniciada.");
-    mr.onstop  = () => logSYS("Grabación detenida.");
+    mr.onerror = (e) => log("SYS: ERROR MediaRecorder: " + (e?.error?.message || e?.message || e));
 
     return mr;
   }
 
-  function getBlob() {
+  function getBlob(){
     if (!state.chunks.length) return null;
-    const type = (state.mediaRecorder && state.mediaRecorder.mimeType) || "audio/webm";
+    const type = state.mediaRecorder?.mimeType || "audio/webm";
     return new Blob(state.chunks, { type });
   }
 
-  async function startStreamWithFallback(deviceId) {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("getUserMedia() no está disponible en este navegador.");
-    }
-
-    await safeStopStream(state.stream);
-    state.stream = null;
-
-    // 1) Intento exacto si nos dieron deviceId
-    if (deviceId && deviceId !== "default" && deviceId !== "communications") {
-      try {
-        const sExact = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: { exact: deviceId } }
-        });
-        state.stream = sExact;
-
-        const track = sExact.getAudioTracks()?.[0];
-        const settings = track?.getSettings?.() || {};
-        state.currentDeviceId = settings.deviceId || deviceId || "";
-        return sExact;
-      } catch (e) {
-        // ✅ fallback si exact no existe
-        if (e?.name === "OverconstrainedError" || e?.name === "NotFoundError") {
-          logSYS(`Mic exacto no disponible (${e.name}). Fallback a mic por defecto.`);
-        } else {
-          throw e;
-        }
-      }
-    }
-
-    // 2) Fallback: audio:true
-    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-    state.stream = s;
-
-    const track = s.getAudioTracks()?.[0];
-    const settings = track?.getSettings?.() || {};
-    state.currentDeviceId = settings.deviceId || "";
-    return s;
+  async function getDefaultMicStream(){
+    // ✅ Siempre default mic (más robusto)
+    return await navigator.mediaDevices.getUserMedia({ audio: true });
   }
 
-  // ===== API =====
-
-  window.VX_refreshMics = async function VX_refreshMics() {
-    logSYS("Actualizando lista de micrófonos…");
-
-    const ok = await requestMicPermission();
-    if (!ok) return { ok: false, error: "permission_denied", mics: [] };
-
-    const raw = await listMicsRaw();
-    const clean = raw.map((d, idx) => ({
-      deviceId: d.deviceId,
-      label: d.label || `Micrófono ${idx + 1}`,
-      groupId: d.groupId || ""
-    }));
-
-    logSYS(`Micrófonos detectados: ${clean.length}`);
-    return { ok: true, mics: clean };
-  };
-
-  window.VX_setMic = function VX_setMic(deviceId) {
-    state.chosenDeviceId = deviceId || "";
-    logSYS(`Mic set: ${state.chosenDeviceId || "default"}`);
-  };
-
-  window.VX_callStart = async function VX_callStart(deviceId = "") {
-    try {
-      const want = deviceId || state.chosenDeviceId || "";
-      logSYS(`VX_callStart(${want || "default"})`);
-
+  window.VX_callStart = async function VX_callStart(){
+    try{
+      log("SYS: VX_callStart (default mic)");
       await setState("listening");
 
-      const ok = await requestMicPermission();
-      if (!ok) throw new Error("Permiso de micrófono bloqueado.");
+      // Permiso
+      if (!navigator.mediaDevices?.getUserMedia){
+        throw new Error("getUserMedia() no disponible.");
+      }
 
-      const stream = await startStreamWithFallback(want);
+      await stopStream();
+      state.stream = await getDefaultMicStream();
 
-      state.mediaRecorder = makeRecorder(stream);
+      state.mediaRecorder = makeRecorder(state.stream);
       state.mediaRecorder.start(250);
       state.isRecording = true;
 
-      return { ok: true, deviceId: state.currentDeviceId, mimeType: state.mediaRecorder.mimeType };
-    } catch (e) {
+      log("SYS: Grabación iniciada ✅ (default mic)");
+      return { ok:true, mimeType: state.mediaRecorder.mimeType };
+
+    }catch(e){
+      log("SYS: ERROR VX_callStart: " + (e?.message || e));
       state.isRecording = false;
-      await safeStopStream(state.stream);
-      state.stream = null;
+      state.mediaRecorder = null;
+      await stopStream();
       await setState("idle");
-      logERR("VX_callStart falló.", e);
       throw e;
     }
   };
 
-  window.VX_callStop = async function VX_callStop() {
-    try {
-      logSYS("VX_callStop()");
-      if (!state.mediaRecorder) {
-        await safeStopStream(state.stream);
-        state.stream = null;
+  window.VX_callStop = async function VX_callStop(){
+    try{
+      log("SYS: VX_callStop");
+      if (!state.mediaRecorder){
+        await stopStream();
         state.isRecording = false;
         await setState("idle");
-        return { ok: true, blob: null, mimeType: null };
+        return { ok:true, blob:null, mimeType:null };
       }
 
       const mr = state.mediaRecorder;
@@ -213,22 +126,25 @@
 
       state.mediaRecorder = null;
       state.isRecording = false;
-
-      await safeStopStream(state.stream);
-      state.stream = null;
-
+      await stopStream();
       await setState("idle");
-      return { ok: true, blob, mimeType };
-    } catch (e) {
-      logERR("VX_callStop falló.", e);
+
+      log("SYS: Grabación detenida ✅");
+      return { ok:true, blob, mimeType };
+
+    }catch(e){
+      log("SYS: ERROR VX_callStop: " + (e?.message || e));
       state.mediaRecorder = null;
       state.isRecording = false;
-      await safeStopStream(state.stream);
-      state.stream = null;
+      await stopStream();
       await setState("idle");
-      return { ok: false, error: e.message || String(e) };
+      return { ok:false, error: e?.message || String(e) };
     }
   };
 
-  logSYS("voiceRecorder.js cargado ✅ (fallback Overconstrained listo)");
+  // Ya no usamos selección de mic
+  window.VX_refreshMics = async () => ({ ok:true, mics:[] });
+  window.VX_setMic = () => {};
+
+  log("SYS: voiceRecorder.js cargado ✅ (default mic only)");
 })();
