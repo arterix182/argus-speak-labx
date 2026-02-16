@@ -1,23 +1,24 @@
-// js/voicePipeline.js (STT multipart OK + alias compat con voiceRecorder)
+// js/voicePipeline.js (STT + CHAT, globals que espera voiceRecorder)
 (() => {
   "use strict";
 
-  async function jsonOrThrow(r) {
+  async function jsonOrThrow(r, label = "HTTP") {
     const txt = await r.text();
     let j = {};
     try { j = txt ? JSON.parse(txt) : {}; }
     catch { j = { error: txt }; }
 
     if (!r.ok) {
-      const msg = (j && (j.error || j.message))
-        ? (j.error || j.message)
-        : (txt || ("HTTP " + r.status));
-      throw new Error(`STT ${r.status}: ${msg}`);
+      const msg =
+        (j && (j.error?.message || j.error || j.message))
+          ? (j.error?.message || j.error || j.message)
+          : (txt || ("HTTP " + r.status));
+      throw new Error(`${label} ${r.status}: ${msg}`);
     }
     return j;
   }
 
-  // ✅ STT principal (ya lo tenías)
+  // ---------------- STT ----------------
   window.VX_sttTranscribe = async function (blob, opts = {}) {
     if (!blob || !blob.size) throw new Error("Empty audio blob");
 
@@ -31,23 +32,52 @@
       cache: "no-store",
     });
 
-    const j = await jsonOrThrow(r);
+    const j = await jsonOrThrow(r, "STT");
     return (j.text || "").trim();
   };
 
-  // ✅ ALIAS de compatibilidad (esto es lo que te faltaba)
-  // voiceRecorder.js está buscando window.VX_transcribeAudio
+  // ✅ Alias que espera voiceRecorder.js
   window.VX_transcribeAudio = async function (blob, opts = {}) {
     return await window.VX_sttTranscribe(blob, opts);
   };
 
-  // Mantén tus otros exports si ya los tienes:
-  // window.VX_chatReply = ...
-  // window.VX_ttsSpeak = ...
-  // window.VX_playAudio = ...
+  // ---------------- CHAT ----------------
+  // ✅ Esta es la que te está faltando: VX_chatReply
+  // Recibe texto y devuelve texto de respuesta.
+  window.VX_chatReply = async function (userText, ctx = {}) {
+    const text = (userText || "").trim();
+    if (!text) return "";
+
+    // Endpoint de chat (si tu proyecto usa otro, cámbialo aquí)
+    const r = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        message: text,
+        // opcional: historial / modo / systemPrompt
+        history: ctx.history || [],
+        mode: ctx.mode || "default",
+      }),
+    });
+
+    const j = await jsonOrThrow(r, "CHAT");
+
+    // Soporta varias formas de respuesta
+    const reply =
+      j.reply ??
+      j.text ??
+      j.message ??
+      (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) ??
+      "";
+
+    return String(reply || "").trim();
+  };
 
   console.log("✅ voicePipeline loaded", {
     VX_sttTranscribe: typeof window.VX_sttTranscribe,
     VX_transcribeAudio: typeof window.VX_transcribeAudio,
+    VX_chatReply: typeof window.VX_chatReply,
   });
 })();
+
