@@ -1,4 +1,4 @@
-// js/voicePipeline.js (STT + CHAT + TTS browser; globals que espera voiceRecorder)
+// js/voicePipeline.js (STT + CHAT + TTS; globals que espera voiceRecorder)
 (() => {
   "use strict";
 
@@ -18,33 +18,25 @@
     return j;
   }
 
-  // ---------------- STT ----------------
+  // ---------------- STT (RAW body) ----------------
+  // Nota: evita multipart porque Netlify a veces "pierde" el file.
   window.VX_sttTranscribe = async function (blob, opts = {}) {
-  if (!blob || !blob.size) throw new Error("Empty audio blob");
+    if (!blob || !blob.size) throw new Error("Empty audio blob");
 
-  const r = await fetch("/api/stt", {
-    method: "POST",
-    headers: {
-      "Content-Type": blob.type || "application/octet-stream",
-      "X-Filename": opts.filename || "audio.webm",
-      "X-MimeType": opts.mimeType || blob.type || "audio/webm",
-    },
-    cache: "no-store",
-    body: blob,
-  });
+    const r = await fetch("/api/stt", {
+      method: "POST",
+      headers: {
+        "Content-Type": blob.type || "application/octet-stream",
+        "X-Filename": opts.filename || "audio.webm",
+        "X-MimeType": opts.mimeType || blob.type || "audio/webm",
+      },
+      cache: "no-store",
+      body: blob,
+    });
 
-  // mismo parser que ya tienes
-  const txt = await r.text();
-  let j = {};
-  try { j = txt ? JSON.parse(txt) : {}; }
-  catch { j = { error: txt }; }
-
-  if (!r.ok) {
-    const msg = (j && (j.error || j.message)) ? (j.error || j.message) : (txt || ("HTTP " + r.status));
-    throw new Error(`STT ${r.status}: ${msg}`);
-  }
-  return (j.text || "").trim();
-};
+    const j = await jsonOrThrow(r, "STT");
+    return (j.text || "").trim();
+  };
 
   // ✅ Alias que espera voiceRecorder.js
   window.VX_transcribeAudio = async function (blob, opts = {}) {
@@ -52,17 +44,17 @@
   };
 
   // ---------------- CHAT ----------------
+  // ✅ Tu backend /api/chat está pidiendo "userText" (no "message")
   window.VX_chatReply = async function (userText, ctx = {}) {
     const text = (userText || "").trim();
     if (!text) return "";
 
-    // Si tu endpoint es otro, cambia aquí
     const r = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({
-        message: text,
+        userText: text,              // ✅ CLAVE CORRECTA
         history: ctx.history || [],
         mode: ctx.mode || "default",
       }),
@@ -81,14 +73,11 @@
   };
 
   // ---------------- TTS (Browser SpeechSynthesis) ----------------
-  // ✅ Lo que te está faltando: VX_ttsSpeak
-  // Objetivo: que "hable" el texto; no requiere API ni endpoint.
   window.VX_ttsSpeak = async function (text, opts = {}) {
     const t = String(text || "").trim();
     if (!t) return;
 
     if (!("speechSynthesis" in window)) {
-      // Si el navegador no soporta TTS, no rompemos la llamada:
       console.warn("speechSynthesis not supported");
       return;
     }
@@ -98,14 +87,14 @@
 
     const utter = new SpeechSynthesisUtterance(t);
 
-    // Opciones básicas
-    // Nota: en algunos Windows conviene 'es-MX' o 'en-US'; ajusta si quieres
+    // Idioma por defecto: inglés
+    // Si quieres que hable español: "es-MX"
     utter.lang = opts.lang || "en-US";
     utter.rate = typeof opts.rate === "number" ? opts.rate : 1.0;
     utter.pitch = typeof opts.pitch === "number" ? opts.pitch : 1.0;
     utter.volume = typeof opts.volume === "number" ? opts.volume : 1.0;
 
-    // Selección de voz opcional (si existe)
+    // Selección opcional de voz
     const wantName = (opts.voiceName || "").toLowerCase();
     const voices = window.speechSynthesis.getVoices?.() || [];
     if (voices.length) {
@@ -130,5 +119,3 @@
     VX_ttsSpeak: typeof window.VX_ttsSpeak,
   });
 })();
-
-
