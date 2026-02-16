@@ -10,7 +10,9 @@
       --card:#0b1830cc; --card2:#0b1830a8;
       --txt:#eaf2ff; --mut:#9fb4d6;
       --br:#223a62; --br2:#1a2d4d;
-      --ok:#20d36b; --shadow: 0 16px 60px rgba(0,0,0,.55);
+      --ok:#20d36b; --warn:#ffcc00;
+      --shadow: 0 16px 60px rgba(0,0,0,.55);
+      --r:18px;
     }
     *{box-sizing:border-box; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;}
     body{
@@ -18,7 +20,8 @@
       background: radial-gradient(1200px 700px at 30% 15%, #143463 0%, transparent 55%),
                   radial-gradient(1100px 700px at 75% 25%, #0f2a52 0%, transparent 50%),
                   linear-gradient(180deg, var(--bg1), var(--bg2));
-      min-height:100vh; padding:24px;
+      min-height:100vh;
+      padding:24px;
     }
     .wrap{max-width:1180px; margin:0 auto;}
     .top{
@@ -29,7 +32,9 @@
       border-radius:24px;
       box-shadow:var(--shadow);
     }
-    .title{display:flex; gap:12px; align-items:center;}
+    .title{
+      display:flex; gap:12px; align-items:center;
+    }
     .badgeMic{
       width:40px; height:40px; border-radius:14px;
       display:grid; place-items:center;
@@ -46,7 +51,13 @@
       color:#d9e7ff; font-size:13px;
       white-space:nowrap;
     }
-    .grid{ margin-top:18px; display:grid; grid-template-columns: 420px 1fr; gap:18px; }
+
+    .grid{
+      margin-top:18px;
+      display:grid;
+      grid-template-columns: 420px 1fr;
+      gap:18px;
+    }
     .card{
       border:1px solid var(--br2);
       background:linear-gradient(180deg, var(--card), var(--card2));
@@ -54,37 +65,65 @@
       box-shadow:var(--shadow);
       padding:16px;
     }
+
     .avatarBox{
-      position:relative; border-radius:18px; overflow:hidden;
+      position:relative;
+      border-radius:18px;
+      overflow:hidden;
       border:1px solid rgba(255,255,255,.06);
-      background:#071328; min-height:240px;
-      display:flex; align-items:center; justify-content:center;
+      background:#071328;
+      min-height:240px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
     }
-    .avatarBox video{ width:100%; height:100%; object-fit:cover; display:block; }
+    .avatarBox video{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
     .stateChip{
-      position:absolute; top:10px; left:10px;
-      padding:6px 10px; border-radius:999px;
+      position:absolute;
+      top:10px; left:10px;
+      padding:6px 10px;
+      border-radius:999px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(0,0,0,.28);
-      font-size:12px; color:#eaf2ff; text-transform:lowercase;
+      font-size:12px;
+      color:#eaf2ff;
+      text-transform:lowercase;
     }
     .missing{
       position:absolute; bottom:10px; left:10px; right:10px;
-      padding:10px 12px; border-radius:14px;
+      padding:10px 12px;
+      border-radius:14px;
       border:1px solid rgba(255,255,255,.10);
       background:rgba(160,40,60,.28);
-      color:#ffe7ec; font-size:13px; display:none;
+      color:#ffe7ec;
+      font-size:13px;
+      display:none;
     }
     .btnRow{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;}
     .btn{
-      padding:12px 14px; border-radius:14px;
+      padding:12px 14px;
+      border-radius:14px;
       border:1px solid var(--br);
       background:linear-gradient(180deg,#0f2a52,#081a34);
-      color:var(--txt); cursor:pointer; font-weight:700;
+      color:var(--txt);
+      cursor:pointer;
+      font-weight:700;
       transition:transform .08s ease;
     }
     .btn:active{transform:translateY(1px);}
-    .btn.primary{ border-color:#2a4c83; background:linear-gradient(180deg,#1b3f78,#0a1d3b); }
+    .btn.primary{
+      border-color:#2a4c83;
+      background:linear-gradient(180deg,#1b3f78,#0a1d3b);
+    }
+    .btn.danger{
+      border-color:#6b2a3a;
+      background:linear-gradient(180deg,#3a1120,#1b0710);
+    }
     .btn.small{padding:10px 12px; font-weight:700;}
     .led{
       width:10px; height:10px; border-radius:999px;
@@ -92,58 +131,103 @@
       box-shadow:0 0 0 3px rgba(255,255,255,.06);
       vertical-align:middle;
     }
-    .led.on{background:#20d36b; box-shadow:0 0 0 3px rgba(32,211,107,.18), 0 0 22px rgba(32,211,107,.35);}
+    .led.on{background:var(--ok); box-shadow:0 0 0 3px rgba(32,211,107,.18), 0 0 22px rgba(32,211,107,.35);}
+
     .row2{display:flex; gap:10px; align-items:center; margin-top:10px;}
     select{
-      width:100%; padding:12px 12px; border-radius:14px;
+      width:100%;
+      padding:12px 12px;
+      border-radius:14px;
       border:1px solid var(--br);
-      background:#071328; color:var(--txt); outline:none;
+      background:#071328;
+      color:var(--txt);
+      outline:none;
     }
-    .meterWrap{ margin-top:12px; display:flex; align-items:center; gap:10px; }
-    .meter{ flex:1; height:10px; border-radius:999px; background:#071328; border:1px solid rgba(255,255,255,.08); overflow:hidden; }
-    .meter > i{ display:block; height:100%; width:0%; background:linear-gradient(90deg, #2de06d, #ffd24d, #ff4d6d); }
+    .meterWrap{
+      margin-top:12px;
+      display:flex; align-items:center; gap:10px;
+    }
+    .meter{
+      flex:1;
+      height:10px;
+      border-radius:999px;
+      background:#071328;
+      border:1px solid rgba(255,255,255,.08);
+      overflow:hidden;
+    }
+    .meter > i{
+      display:block;
+      height:100%;
+      width:0%;
+      background:linear-gradient(90deg, #2de06d, #ffd24d, #ff4d6d);
+    }
     .mut{color:var(--mut); font-size:12px;}
-    .rightTop{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;}
+
+    .rightTop{
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      margin-bottom:10px;
+    }
     .tag{
-      padding:6px 10px; border-radius:999px;
+      padding:6px 10px;
+      border-radius:999px;
       border:1px solid rgba(255,255,255,.10);
       background:rgba(0,0,0,.18);
-      font-size:12px; color:#dbe9ff; text-transform:lowercase;
+      font-size:12px;
+      color:#dbe9ff;
+      text-transform:lowercase;
     }
     .logBox{
-      margin-top:10px; border-radius:18px;
+      margin-top:10px;
+      border-radius:18px;
       border:1px solid rgba(255,255,255,.08);
-      background:#061327; padding:12px;
-      height:340px; overflow:auto;
+      background:#061327;
+      padding:12px;
+      height:340px;
+      overflow:auto;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
-      font-size:13px; line-height:1.45; white-space:pre-wrap;
+      font-size:13px;
+      line-height:1.45;
+      white-space:pre-wrap;
     }
-    .inputRow{ margin-top:12px; display:flex; gap:10px; }
+    .inputRow{
+      margin-top:12px;
+      display:flex; gap:10px;
+    }
     .inputRow input{
-      flex:1; padding:12px 12px; border-radius:14px;
+      flex:1;
+      padding:12px 12px;
+      border-radius:14px;
       border:1px solid var(--br);
-      background:#071328; color:var(--txt); outline:none;
+      background:#071328;
+      color:var(--txt);
+      outline:none;
     }
-    @media (max-width: 980px){ .grid{grid-template-columns:1fr;} }
+    .hint{margin-top:10px; color:var(--mut); font-size:12px;}
+    @media (max-width: 980px){
+      .grid{grid-template-columns:1fr;}
+    }
   </style>
 </head>
 
 <body>
 <div class="wrap">
+
   <div class="top">
     <div>
       <div class="title">
         <div class="badgeMic">🎙️</div>
         <div>
           <h1>Avatar Beta (Voz → IA → Voz)</h1>
-          <div class="sub">Inicia llamada, habla, auto-stop por silencio (~0.7s) y repite.</div>
+          <div class="sub">Toca el botón para hablar. Se detiene por silencio (~0.7s). Click de nuevo para colgar.</div>
         </div>
       </div>
     </div>
-    <div class="apiPill">API: STT | CHAT | TTS</div>
+    <div class="apiPill">API: STT&nbsp; | &nbsp;CHAT&nbsp; | &nbsp;TTS</div>
   </div>
 
   <div class="grid">
+
+    <!-- LEFT -->
     <div class="card">
       <div class="avatarBox">
         <span id="stateChip" class="stateChip">idle</span>
@@ -155,9 +239,9 @@
         <button id="btnCall" class="btn primary">
           <span id="callLed" class="led"></span><span id="callText">Iniciar llamada</span>
         </button>
-        <button id="btnMicTest" class="btn small">Probar mic (3s)</button>
         <button id="btnTestText" class="btn small">Probar Chat (texto)</button>
         <button id="btnClear" class="btn small">Limpiar</button>
+        <button id="btnForget" class="btn small danger">Borrar memoria</button>
       </div>
 
       <div class="row2">
@@ -166,6 +250,9 @@
           <option value="friendly">Friendly</option>
           <option value="strict">Strict</option>
         </select>
+        <select id="micSelect">
+          <option value="">Cargando micrófonos...</option>
+        </select>
       </div>
 
       <div class="meterWrap">
@@ -173,11 +260,16 @@
         <div class="mut">Nivel</div>
       </div>
 
-      <div class="mut" style="margin-top:10px">
-        Micrófono: automático (default del dispositivo). Sin selector.
+      <div class="btnRow" style="margin-top:10px">
+        <button id="btnRefreshMics" class="btn small">Actualizar mics</button>
+      </div>
+
+      <div class="hint">
+        Tip: si estás en lugar ruidoso, habla más cerca del mic. Si no detecta voz, sube el umbral en recorder.
       </div>
     </div>
 
+    <!-- RIGHT -->
     <div class="card">
       <div class="rightTop">
         <div class="tag" id="statusTag">idle</div>
@@ -191,28 +283,32 @@
         <button id="btnSendText" class="btn small">Enviar</button>
       </div>
     </div>
+
   </div>
 </div>
 
-<!-- ✅ IMPORTANTE: estos nombres/paths deben existir en tu repo -->
-<script src="/voicePipeline.js?v=901"></script>
-<script src="/voiceRecorder.js?v=901"></script>
+<!-- JS (orden IMPORTA: pipeline primero, recorder después) -->
+<script src="/js/voicePipeline.js?v=1"></script>
+<script src="/js/voiceRecorder.js?v=1"></script>
 
 <script>
+  // ===== UI helpers =====
   const logEl = document.getElementById("log");
   const statusTag = document.getElementById("statusTag");
   const statusText = document.getElementById("statusText");
   const callLed = document.getElementById("callLed");
   const callText = document.getElementById("callText");
   const btnCall = document.getElementById("btnCall");
-  const btnMicTest = document.getElementById("btnMicTest");
   const btnClear = document.getElementById("btnClear");
+  const btnForget = document.getElementById("btnForget");
   const btnTestText = document.getElementById("btnTestText");
   const btnSendText = document.getElementById("btnSendText");
   const textInput = document.getElementById("textInput");
+  const micSelect = document.getElementById("micSelect");
+  const btnRefreshMics = document.getElementById("btnRefreshMics");
   const modeSelect = document.getElementById("modeSelect");
-  const meterFill = document.getElementById("meterFill");
 
+  // Avatar
   const avatarVideo = document.getElementById("avatarVideo");
   const stateChip = document.getElementById("stateChip");
   const missingBox = document.getElementById("missingBox");
@@ -239,14 +335,17 @@
     stateChip.textContent = state;
     const src = AVATAR[state] || AVATAR.idle;
 
+    // Si el video ya está en ese src, no lo reinicies
     if (avatarVideo.dataset.src === src) return;
     avatarVideo.dataset.src = src;
 
+    // Probe: si no existe, muestra alerta "Falta avatar_*.mp4"
     try{
       const r = await fetch(src, { method:"HEAD", cache:"no-store" });
       if(!r.ok) throw new Error("missing");
       missingBox.style.display = "none";
       avatarVideo.src = src;
+      // speaking NO loop si quieres; aquí lo dejamos loop para continuidad visual
       avatarVideo.loop = true;
       await avatarVideo.play().catch(()=>{});
     }catch(e){
@@ -256,22 +355,23 @@
     }
   }
 
+  // ===== Bind to recorder callbacks =====
+  // voiceRecorder.js dispara estos eventos
   window.VX_onState = async (s) => {
+    // s: idle/listening/thinking/speaking
     if (s === "listening") setStatus("listening", "Escuchando… (silencio = stop)");
     if (s === "thinking")  setStatus("thinking", "Procesando…");
     if (s === "speaking")  setStatus("speaking", "Respondiendo…");
     if (s === "idle")      setStatus("idle", "Llamada detenida");
+
     await setAvatarState(s);
   };
 
   window.VX_onLog = (m) => addLog(m);
 
-  window.VX_onLevel = (p) => {
-    const pct = Math.max(0, Math.min(1, p || 0));
-    meterFill.style.width = Math.round(pct * 100) + "%";
-  };
-
+  // ===== Call button =====
   let callActive = false;
+
   function paintCall(active){
     callActive = active;
     callLed.classList.toggle("on", active);
@@ -279,60 +379,88 @@
   }
 
   btnCall.onclick = async () => {
+    // Asegura audio desbloqueado (autoplay policy)
     if (window.VX_unlockAudio) await window.VX_unlockAudio();
 
     if (!callActive){
-      paintCall(true);
-      try{
-        await window.VX_callStart({ mode: modeSelect.value });
-      }catch(e){
-        paintCall(false);
-        alert(e?.message || e);
+      // inicia llamada (auto-stop por silencio)
+      const fn = window.VX_callStart;
+      if (typeof fn !== "function"){
+        alert("No cargó VX_callStart. Revisa que /js/voiceRecorder.js exista y se esté cargando.");
+        return;
       }
+      paintCall(true);
+      await fn().catch(err=>{
+        paintCall(false);
+        alert("Falló voz/IA: " + err.message);
+      });
     } else {
-      await window.VX_callStop().catch(()=>{});
+      const fn = window.VX_callStop;
+      if (typeof fn === "function") await fn().catch(()=>{});
       paintCall(false);
     }
   };
 
-  btnMicTest.onclick = async () => {
-    try{
-      if (window.VX_unlockAudio) await window.VX_unlockAudio();
-      addLog("SYS: MicTest 3s...");
-      const r = await window.VX_micTest3s();
-      addLog("SYS: Mic OK ✅ size=" + r.size);
-    }catch(e){
-      addLog("SYS: Mic FAIL ❌ " + (e?.message || e));
-      alert(e?.message || e);
-    }
-  };
-
+  // ===== Text test =====
   async function runTextTurn(){
     try{
       await setAvatarState("thinking");
-      addLog("SYS: CHAT...");
-      const reply = await window.VX_chatReply(textInput.value || "Hello, this is a test.", { mode: modeSelect.value });
+      addLog("SYS: CHAT (texto)...");
+      const mode = modeSelect.value;
+      const reply = await window.VX_chatReply(textInput.value || "Hello, test.", { mode });
       addLog("BOT: " + reply);
       await setAvatarState("speaking");
       addLog("SYS: TTS...");
-      const buf = await window.VX_ttsAudio(reply);
-      await window.VX_playAudio(buf);
+      const audioBuf = await window.VX_ttsAudio(reply);
+      await window.VX_playAudio(audioBuf);
       await setAvatarState("idle");
     }catch(e){
       await setAvatarState("idle");
-      alert(e?.message || e);
+      alert("Falló texto: " + e.message);
     }
   }
 
   btnTestText.onclick = runTextTurn;
   btnSendText.onclick = runTextTurn;
 
-  btnClear.onclick = () => { logEl.textContent = ""; addLog("SYS: Log limpio."); };
+  // ===== Clear / Forget =====
+  btnClear.onclick = () => {
+    logEl.textContent = "";
+    addLog("SYS: Log limpio.");
+  };
+  btnForget.onclick = () => {
+    localStorage.removeItem("VX_MEMORY");
+    addLog("SYS: Memoria borrada.");
+  };
 
+  // ===== Mic selector =====
+  btnRefreshMics.onclick = async () => {
+    if (window.VX_refreshMics) await window.VX_refreshMics();
+  };
+
+  micSelect.addEventListener("change", () => {
+    const id = micSelect.value;
+    localStorage.setItem("VX_MIC", id);
+    if (window.VX_setMic) window.VX_setMic(id);
+    addLog("SYS: Mic seleccionado.");
+  });
+
+  // ===== Init =====
   (async ()=>{
     addLog("SYS: UI lista.");
     await setAvatarState("idle");
+    if (window.VX_refreshMics) await window.VX_refreshMics();
+    const saved = localStorage.getItem("VX_MIC");
+    if (saved) {
+      micSelect.value = saved;
+      if (window.VX_setMic) window.VX_setMic(saved);
+    }
   })();
+
+  // Exponer para debug en consola
+  window.VX_addLog = addLog;
+  window.VX_setAvatarState = setAvatarState;
 </script>
+
 </body>
 </html>
