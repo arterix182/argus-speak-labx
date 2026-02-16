@@ -1,85 +1,125 @@
-// voicePipeline.js
-// Front: STT (multipart/form-data) -> CHAT (JSON) -> TTS (JSON->audio) -> play
-
 (function(){
-  function emit(name, detail){ window.dispatchEvent(new CustomEvent(name, { detail })); }
-
-  async function VX_transcribeAudio(blob){
-    if(!blob || blob.size < 2000) throw new Error("Audio muy corto. Habla 1–2s.");
-    // STT espera multipart/form-data
-    const fd = new FormData();
-    fd.append("file", blob, "audio.webm");
-
-    const r = await fetch("/api/stt", { method:"POST", body: fd });
+  // Helpers
+  async function jsonOrThrow(r){
     const txt = await r.text();
-
-    let j;
-    try { j = JSON.parse(txt); } catch { throw new Error(`STT no devolvió JSON: ${txt.slice(0,120)}`); }
-    if(!r.ok) throw new Error(j?.error || "STT error");
-    return (j.text || "").trim();
+    try { return JSON.parse(txt); }
+    catch { throw new Error("Non-JSON response: " + txt.slice(0,120)); }
   }
 
-  async function VX_chatReply(userText){
+  // CHAT (JSON)
+  async function VX_chat(userText, mode){
     const clean = (userText || "").trim();
-    if(!clean) throw new Error("Texto vacío");
+    if(!clean) throw new Error("Empty text");
     const r = await fetch("/api/chat", {
       method:"POST",
       headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ userText: clean })
+      body: JSON.stringify({ userText: clean, mode: mode || "coach" })
     });
-    const j = await r.json().catch(()=> ({}));
-    if(!r.ok) throw new Error(j?.error || "CHAT error");
+    const j = await jsonOrThrow(r);
+    if(!r.ok) throw new Error(j.error || "chat failed");
     return (j.reply || "").trim();
   }
 
-  async function VX_ttsSpeak(text){
+  // STT (multipart/form-data)  ✅ evita tu error de Content-Type
+  async function VX_transcribeAudio(blob){
+    if(!blob || !blob.size) throw new Error("Empty audio blob");
+    const fd = new FormData();
+    fd.append("file", blob, "audio.webm");
+    fd.append("mimeType", blob.type || "audio/webm");
+
+    const r = await fetch("/api/stt", {
+      method:"POST",
+      body: fd
+      // NO pongas Content-Type: el browser pone boundary solo
+    });
+
+    const j = await jsonOrThrow(r);
+    if(!r.ok) throw new Error(j.error || "stt failed");
+    return (j.text || "").trim();
+  }
+
+  // TTS (JSON -> audio/mpeg)
+  async function VX_tts(text){
     const clean = (text || "").trim();
-    if(!clean) return;
-
-    emit("VX_AVATAR", { state:"speaking" });
-
+    if(!clean) throw new Error("Empty TTS text");
     const r = await fetch("/api/tts", {
       method:"POST",
       headers:{ "Content-Type":"application/json" },
       body: JSON.stringify({ text: clean })
     });
-
     if(!r.ok){
-      const t = await r.text().catch(()=> "");
-      throw new Error("TTS error: " + t.slice(0,160));
+      const j = await jsonOrThrow(r).catch(()=>({error:"tts failed"}));
+      throw new Error(j.error || "tts failed");
     }
-    const buf = await r.arrayBuffer();
-    await VX_playAudio(buf);
+    return await r.arrayBuffer();
   }
 
-  async function VX_playAudio(buf){
-    // Reproductor simple (Audio tag)
+  // Play audio + “lip-ish” (analizador)
+  let audioCtx = null;
+  async function VX_ttsSpeak(text){
+    // unlock en gesto
+    if(!audioCtx){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if(audioCtx.state === "suspended"){
+      try{ await audioCtx.resume(); }catch{}
+    }
+
+    const buf = await VX_tts(text);
     const blob = new Blob([buf], { type:"audio/mpeg" });
     const url = URL.createObjectURL(blob);
+
     const a = new Audio(url);
-    a.preload = "auto";
+    a.crossOrigin = "anonymous";
 
-    // intentar reproducir (si el navegador bloquea autoplay, debes iniciar con click)
-    await a.play().catch(()=>{ /* bloqueado */ });
+    // analyzer para “mouth power”
+    const src = audioCtx.createMediaElementSource(a);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    src.connect(analyser);
+    analyser.connect(audioCtx.destination);
 
-    await new Promise((res)=>{ a.onended = res; a.onerror = res; });
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let raf = null;
+
+    const tick = ()=>{
+      analyser.getByteTimeDomainData(data);
+      // RMS simple
+      let sum=0;
+      for(let i=0;i<data.length;i++){
+        const v = (data[i]-128)/128;
+        sum += v*v;
+      }
+      const rms = Math.sqrt(sum/data.length);
+      if(window.VX_UI && window.VX_UI.setMouth) window.VX_UI.setMouth(rms*2.2);
+      raf = requestAnimationFrame(tick);
+    };
+
+    await a.play().catch(()=>{});
+    tick();
+
+    await new Promise(res=>{
+      a.onended = res;
+      a.onerror = res;
+    });
+
+    if(raf) cancelAnimationFrame(raf);
+    if(window.VX_UI && window.VX_UI.setMouth) window.VX_UI.setMouth(0);
     URL.revokeObjectURL(url);
-
-    emit("VX_AVATAR", { state:"idle" });
   }
 
-  // Export to window
+  // Export global
+  window.VX_chat = VX_chat;
   window.VX_transcribeAudio = VX_transcribeAudio;
-  window.VX_chatReply = VX_chatReply;
   window.VX_ttsSpeak = VX_ttsSpeak;
-  window.VX_playAudio = VX_playAudio;
 
   console.log("✅ voicePipeline loaded", {
+    VX_chat: typeof window.VX_chat,
     VX_transcribeAudio: typeof window.VX_transcribeAudio,
-    VX_chatReply: typeof window.VX_chatReply,
     VX_ttsSpeak: typeof window.VX_ttsSpeak
   });
 })();
+
 
 
 
