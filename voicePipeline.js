@@ -83,7 +83,7 @@
       model: opts.model || "tts-1-hd",     // calidad alta y consistente
       voice: opts.voice || "nova",      // suele percibirse femenina
       format: opts.format || "mp3",
-      speed: typeof opts.speed === "number" ? opts.speed : 1.00,
+      speed: typeof opts.speed === "number" ? opts.speed : 0.85,
       // Solo aplica si usas gpt-4o-mini-tts (tu tts.js ya lo maneja)
       instructions: opts.instructions
     };
