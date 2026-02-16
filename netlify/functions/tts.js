@@ -20,7 +20,7 @@ export async function handler(event) {
     const model = body?.model || "tts-1-hd";   // ✅ más rápido
     const voice = body?.voice || "nova";    // ✅ voz NOVA
     const format = body?.format || "mp3";     // mp3, wav, aac, opus...
-    const speed = typeof body?.speed === "number" ? body.speed : 1.0;
+    const speed = typeof body?.speed === "number" ? body.speed : 0.85;
 
     // Con gpt-4o-mini-tts puedes dar “instrucciones” de estilo.
     // No aplica a tts-1 / tts-1-hd según docs. :contentReference[oaicite:3]{index=3}
