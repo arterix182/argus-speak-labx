@@ -1,8 +1,8 @@
 // netlify/functions/stt.js
 // STT endpoint: recibe audio (multipart/form-data o JSON base64) y lo manda a OpenAI.
-// Este archivo está hecho para Netlify Functions + ESM ("type":"module").
+// Hecho para Netlify Functions + ESM ("type":"module").
+// FIX: detecta correctamente body utf8 vs base64 usando el boundary real.
 
-// ✅ Import estable (evita: (0, import_formidable.default) is not a function)
 import { Buffer } from "node:buffer";
 
 export const config = {
@@ -24,19 +24,20 @@ export async function handler(event) {
       const boundary = getBoundary(ct);
       if (!boundary) return json(400, { error: "Missing multipart boundary" });
 
-      const rawBody = getRawBodyBuffer(event);
+      const rawBody = getRawBodyBufferByBoundary(event, boundary);
       const parts = parseMultipart(rawBody, boundary);
 
-      // Esperamos: file (blob) y opcional: mimeType (texto)
+      // Esperamos: file (binario) y opcional: mimeType (texto)
       const filePart = parts.find(p => p.name === "file") || parts.find(p => p.filename);
-      if (!filePart || !filePart.data?.length) {
+      if (!filePart || !filePart.data || filePart.data.length === 0) {
         return json(400, { error: "Missing file field or empty file" });
       }
 
       const mimePart = parts.find(p => p.name === "mimeType");
-      const mimeType = (mimePart?.data ? mimePart.data.toString("utf8").trim() : "") ||
-                       filePart.contentType ||
-                       "audio/webm";
+      const mimeType =
+        (mimePart?.data ? mimePart.data.toString("utf8").trim() : "") ||
+        filePart.contentType ||
+        "audio/webm";
 
       const filename = filePart.filename || "audio.webm";
 
@@ -56,9 +57,12 @@ export async function handler(event) {
       const audioBase64 = body.audioBase64;
       const mimeType = body.mimeType || "audio/webm";
       const filename = body.filename || "audio.webm";
+
       if (!audioBase64) return json(400, { error: "Missing audioBase64" });
 
       const audioBuf = Buffer.from(audioBase64, "base64");
+      if (!audioBuf || audioBuf.length === 0) return json(400, { error: "Empty audioBase64 buffer" });
+
       const text = await transcribeWithOpenAI({ key, audioBuf, mimeType, filename });
       return json(200, { text });
     }
@@ -68,17 +72,15 @@ export async function handler(event) {
       contentType: ct || "(missing)",
     });
   } catch (e) {
-    // Devolvemos más info para que el front vea el motivo real.
     return json(500, {
       error: e?.message || String(e),
-      stack: (e && e.stack) ? String(e.stack).split("\n").slice(0, 6).join("\n") : undefined,
+      stack: e?.stack ? String(e.stack).split("\n").slice(0, 8).join("\n") : undefined,
     });
   }
 }
 
 // ---------------- OpenAI call ----------------
 async function transcribeWithOpenAI({ key, audioBuf, mimeType, filename }) {
-  // Netlify (Node 18+) tiene fetch/FormData/Blob globales
   const form = new FormData();
   form.append("model", "whisper-1");
   form.append("file", new Blob([audioBuf], { type: mimeType }), filename);
@@ -90,7 +92,7 @@ async function transcribeWithOpenAI({ key, audioBuf, mimeType, filename }) {
   });
 
   const txt = await r.text();
-  let data;
+  let data = {};
   try { data = txt ? JSON.parse(txt) : {}; } catch { data = { raw: txt }; }
 
   if (!r.ok) {
@@ -101,51 +103,50 @@ async function transcribeWithOpenAI({ key, audioBuf, mimeType, filename }) {
   return String(data.text || "").trim();
 }
 
-// ---------------- multipart parser (buffer-safe) ----------------
+// ---------------- multipart helpers ----------------
 function getBoundary(contentType) {
-  // content-type: multipart/form-data; boundary=----WebKitFormBoundaryXYZ
   const m = contentType.match(/boundary=([^;]+)/i);
   if (!m) return "";
   return m[1].trim().replace(/^"|"$/g, "");
 }
 
-function getRawBodyBuffer(event) {
-  const b = event.body || "";
-  if (!b) return Buffer.alloc(0);
-  // En Netlify, multipart suele venir base64-encoded.
-  // OJO: en algunos casos isBase64Encoded puede venir falso/undefined aunque el body sí sea base64.
-  // Hacemos un fallback: probamos base64 y validamos si aparece el boundary al convertir a latin1.
+// ✅ Elige el buffer correcto comparando contra el boundary REAL
+function getRawBodyBufferByBoundary(event, boundary) {
+  const bodyStr = event.body || "";
+  if (!bodyStr) return Buffer.alloc(0);
 
-  if (event.isBase64Encoded) return Buffer.from(b, "base64");
+  const marker = `--${boundary}`;
 
-  // Heurística base64: caracteres válidos y longitud múltiplo de 4
-  const looksB64 = /^[A-Za-z0-9+/=\r\n]+$/.test(b) && (b.replace(/\s+/g, "").length % 4 === 0);
-  if (looksB64) {
-    try {
-      const bufB64 = Buffer.from(b, "base64");
-      // Si al decodificar parece multipart (contiene "--"), lo usamos.
-      // No es perfecto, pero evita el 400 por parseo vacío.
-      const s = bufB64.toString("latin1");
-      if (s.includes("\r\n") && s.includes("--")) return bufB64;
-    } catch {}
+  // Candidato 1: utf8 directo
+  const bufUtf8 = Buffer.from(bodyStr, "utf8");
+  if (bufUtf8.toString("latin1").includes(marker)) return bufUtf8;
+
+  // Candidato 2: base64 (aunque isBase64Encoded venga mal)
+  // Intentamos siempre; si no era base64, no contendrá el boundary.
+  try {
+    const bufB64 = Buffer.from(bodyStr, "base64");
+    if (bufB64.toString("latin1").includes(marker)) return bufB64;
+  } catch {}
+
+  // Si Netlify sí marcó base64, respétalo
+  if (event.isBase64Encoded) {
+    try { return Buffer.from(bodyStr, "base64"); } catch {}
   }
 
-  // Fallback texto
-  return Buffer.from(b, "utf8");
+  // Último fallback
+  return bufUtf8;
 }
 
 function parseMultipart(buf, boundary) {
-  // Convertimos a latin1 para no corromper bytes (1:1) al cortar por strings.
+  // Cortamos como latin1 para no corromper bytes (1:1)
   const body = buf.toString("latin1");
   const delim = `--${boundary}`;
   const sections = body.split(delim);
 
-  // La primera sección es preámbulo; la última incluye "--"
   const usable = sections.slice(1, -1);
-
   const parts = [];
+
   for (let sec of usable) {
-    // quita CRLF inicial y final
     sec = sec.replace(/^\r\n/, "");
     sec = sec.replace(/\r\n$/, "");
 
@@ -155,7 +156,6 @@ function parseMultipart(buf, boundary) {
     const rawHeaders = sec.slice(0, idx);
     let rawData = sec.slice(idx + 4);
 
-    // quita CRLF final si existe
     if (rawData.endsWith("\r\n")) rawData = rawData.slice(0, -2);
 
     const headers = {};
@@ -180,7 +180,6 @@ function parseMultipart(buf, boundary) {
 }
 
 function getDispParam(contentDisposition, key) {
-  // content-disposition: form-data; name="file"; filename="audio.webm"
   const re = new RegExp(`${key}=("([^"]*)"|[^;]+)`, "i");
   const m = contentDisposition.match(re);
   if (!m) return "";
