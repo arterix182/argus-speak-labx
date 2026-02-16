@@ -1,280 +1,329 @@
-/* voiceRecorder.js (PRO)
-   Requiere: voicePipeline.js cargado antes.
-   Exporta:
-   - VX_setMic(deviceId)
-   - VX_startCall() / VX_stopCall()
+/* js/voiceRecorder.js
+   Continuous call with auto-stop by silence + mic selector + meter.
 */
-
 (function () {
-  // ---------- Config ----------
-  const SILENCE_STOP_MS = 700;     // ~0.7s
-  const START_THRESHOLD = 0.018;   // sube/baja según mic
-  const SILENCE_THRESHOLD = 0.010; // sube/baja según ruido
-  const CALIBRATE_MS = 450;
-
-  // ---------- UI hooks (opcional) ----------
-  // Si tienes barra de nivel, pon en tu HTML: <progress id="vxLevel" max="1" value="0"></progress>
-  const levelEl = document.getElementById("vxLevel");
-
-  function setAvatar(state) {
-    try { if (typeof window.VX_setAvatarState === "function") window.VX_setAvatarState(state); }
-    catch (_) {}
-  }
-
-  function log(msg) {
-    // Si ya tienes addLog() global, úsalo
-    if (typeof window.addLog === "function") window.addLog(msg);
-    else console.log(msg);
-  }
-
-  // ---------- State ----------
-  let callActive = false;
-  let selectedMicId = "";
   let stream = null;
-
-  // Recorder
   let mediaRecorder = null;
   let chunks = [];
+  let deviceId = localStorage.getItem("VX_MIC") || "";
+  let callActive = false;
 
-  // Audio analysis (silence auto-stop)
+  // audio meter
   let audioCtx = null;
   let analyser = null;
-  let srcNode = null;
-  let data = null;
+  let sourceNode = null;
+  let rafId = null;
 
-  // Timers
-  let rmsInterval = null;
-  let silenceTimer = null;
+  // tuneables
+  const SILENCE_HOLD_MS = 700;     // ~0.7s
+  const CALIBRATE_MS = 350;        // baseline noise sample
+  const START_MULT = 2.2;          // start threshold factor
+  const SILENCE_MULT = 1.6;        // silence threshold factor
+  const MIN_START_ABS = 0.012;     // absolute floor to avoid never starting
 
-  // Turn lock (evita doble turno encima)
-  let busy = false;
+  // UI hooks
+  const onLog = (m) => window.VX_onLog && window.VX_onLog(m);
+  const onState = (s) => window.VX_onState && window.VX_onState(s);
 
-  // ---------- Mic selection ----------
-  function VX_setMic(deviceId) {
-    selectedMicId = deviceId || "";
-    localStorage.setItem("VX_MIC", selectedMicId);
-    log("SYS: Mic set.");
-  }
-  window.VX_setMic = VX_setMic;
-
-  // ---------- AudioContext ensure ----------
-  async function ensureAudioCtx() {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioCtx.state === "suspended") {
-      try { await audioCtx.resume(); } catch (_) {}
-    }
+  function setMeter(pct) {
+    const el = document.getElementById("meterFill");
+    if (!el) return;
+    el.style.width = `${Math.max(0, Math.min(100, pct))}%`;
   }
 
-  function cleanupAnalyser() {
-    if (rmsInterval) { clearInterval(rmsInterval); rmsInterval = null; }
-    if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
-    try { if (srcNode) srcNode.disconnect(); } catch (_) {}
-    try { if (analyser) analyser.disconnect(); } catch (_) {}
-    srcNode = null;
-    analyser = null;
-    data = null;
-  }
+  async function stopStream() {
+    try {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = null;
+      setMeter(0);
 
-  function stopStreamTracks() {
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+      }
+    } catch {}
+
     try {
       if (stream) stream.getTracks().forEach(t => t.stop());
-    } catch (_) {}
+    } catch {}
     stream = null;
+    mediaRecorder = null;
+    chunks = [];
+
+    try {
+      if (sourceNode) sourceNode.disconnect();
+      if (analyser) analyser.disconnect();
+    } catch {}
+    sourceNode = null;
+    analyser = null;
+
+    try {
+      if (audioCtx) await audioCtx.close();
+    } catch {}
+    audioCtx = null;
   }
 
-  // ---------- RMS calc ----------
-  function computeRms() {
-    if (!analyser || !data) return 0;
-    analyser.getFloatTimeDomainData(data);
+  async function ensureStream() {
+    // Siempre creamos stream nuevo cuando arrancas para evitar el bug “2do intento”
+    await stopStream();
+
+    const constraints = {
+      audio: deviceId ? { deviceId: { exact: deviceId } } : true
+    };
+
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+
+    sourceNode = audioCtx.createMediaStreamSource(stream);
+    sourceNode.connect(analyser);
+  }
+
+  function rmsFromAnalyser() {
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteTimeDomainData(buf);
+
     let sum = 0;
-    for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
-    return Math.sqrt(sum / data.length);
+    for (let i = 0; i < buf.length; i++) {
+      const v = (buf[i] - 128) / 128;
+      sum += v * v;
+    }
+    return Math.sqrt(sum / buf.length); // 0..~1
   }
 
-  // ---------- Start recording ----------
-  async function startRecording() {
-    if (busy) return;
-    busy = true;
+  async function calibrateNoise() {
+    const t0 = performance.now();
+    let n = 0, acc = 0;
 
-    try {
-      await ensureAudioCtx();
+    while (performance.now() - t0 < CALIBRATE_MS) {
+      const v = rmsFromAnalyser();
+      acc += v;
+      n++;
+      await new Promise(r => setTimeout(r, 20));
+    }
+    const noise = (acc / Math.max(1, n)) || 0.004;
+    return noise;
+  }
 
-      // Stream
-      const constraints = {
-        audio: selectedMicId
-          ? { deviceId: { exact: selectedMicId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-          : { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+  function startMeterLoop() {
+    const loop = () => {
+      if (!callActive || !analyser) return;
+      const v = rmsFromAnalyser();         // 0..1
+      const pct = Math.min(100, v * 2500); // escala visual
+      setMeter(pct);
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function recordOnce() {
+    return new Promise((resolve, reject) => {
+      chunks = [];
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+
+      mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
       };
+      mediaRecorder.onerror = (e) => reject(e.error || new Error("MediaRecorder error"));
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mime || "audio/webm" });
+        resolve(blob);
+      };
+      mediaRecorder.start();
+    });
+  }
 
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
+  async function waitForSpeechAndAutoStop(noise) {
+    // thresholds
+    const startTh = Math.max(MIN_START_ABS, noise * START_MULT);
+    const silenceTh = Math.max(MIN_START_ABS * 0.8, noise * SILENCE_MULT);
 
-      // Recorder
-      chunks = [];
-      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+    onLog(`SYS: Calibrado. ruido=${noise.toFixed(3)} start=${startTh.toFixed(3)} silence=${silenceTh.toFixed(3)}`);
 
-      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    // wait until speaking starts (crosses startTh)
+    let started = false;
+    let lastLoud = performance.now();
 
-      // Analyser
-      cleanupAnalyser();
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
-      data = new Float32Array(analyser.fftSize);
+    while (callActive) {
+      const v = rmsFromAnalyser();
 
-      srcNode = audioCtx.createMediaStreamSource(stream);
-      srcNode.connect(analyser);
-
-      // Calibración rápida (para que no se quede “escuchando” eternamente)
-      setAvatar("listening");
-      log("SYS: Escuchando... (auto-stop por silencio)");
-
-      let baseNoise = 0;
-      const t0 = performance.now();
-      while (performance.now() - t0 < CALIBRATE_MS) {
-        baseNoise = Math.max(baseNoise, computeRms());
-        await new Promise(r => setTimeout(r, 30));
+      if (!started) {
+        if (v >= startTh) {
+          started = true;
+          onLog("SYS: Detecté voz. Grabando…");
+          onState("listening");
+          lastLoud = performance.now();
+          break;
+        }
       }
-
-      // Ajuste dinámico suave
-      const startTh = Math.max(START_THRESHOLD, baseNoise * 2.2);
-      const silenceTh = Math.max(SILENCE_THRESHOLD, baseNoise * 1.6);
-
-      log(`SYS: Calibrado. ruido=${baseNoise.toFixed(3)} start=${startTh.toFixed(3)} silence=${silenceTh.toFixed(3)}`);
-
-      // Start
-      mediaRecorder.start(250);
-
-      // Monitor RMS + auto stop
-      let hasSpoken = false;
-
-      rmsInterval = setInterval(() => {
-        const rms = computeRms();
-
-        // barra nivel (0..1)
-        if (levelEl) {
-          const v = Math.min(1, Math.max(0, rms * 8)); // escala visual
-          levelEl.value = v;
-        }
-
-        if (!hasSpoken) {
-          if (rms > startTh) {
-            hasSpoken = true;
-            // Cancelar cualquier “silenceTimer” previo
-            if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
-          }
-          return;
-        }
-
-        // Ya habló: si baja de threshold, inicia conteo para auto-stop
-        if (rms < silenceTh) {
-          if (!silenceTimer) {
-            silenceTimer = setTimeout(() => {
-              silenceTimer = null;
-              // Stop por silencio
-              stopRecordingAndRunTurn();
-            }, SILENCE_STOP_MS);
-          }
-        } else {
-          if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
-        }
-      }, 60);
-
-    } catch (e) {
-      log("SYS: ERROR al iniciar mic/grabación.");
-      console.error(e);
-      setAvatar("idle");
-      stopStreamTracks();
-      cleanupAnalyser();
-    } finally {
-      busy = false;
+      await new Promise(r => setTimeout(r, 30));
     }
+
+    if (!callActive) return { started: false };
+
+    // Now we are in "speaking started", we stop when silent for SILENCE_HOLD_MS
+    while (callActive) {
+      const v = rmsFromAnalyser();
+      const now = performance.now();
+
+      if (v >= silenceTh) lastLoud = now;
+
+      if (now - lastLoud > SILENCE_HOLD_MS) {
+        onLog("SYS: Auto-stop por silencio.");
+        return { started: true };
+      }
+      await new Promise(r => setTimeout(r, 30));
+    }
+
+    return { started: started };
   }
 
-  // ---------- Stop recording + run turn ----------
-  async function stopRecordingAndRunTurn() {
-    if (!mediaRecorder || mediaRecorder.state !== "recording") return;
-    if (busy) return;
-    busy = true;
+  async function runOneTurn() {
+    // 1) ensure stream + meter
+    await ensureStream();
+    startMeterLoop();
 
-    try {
-      cleanupAnalyser();
+    // 2) calibrate
+    onState("listening");
+    onLog("SYS: Escuchando… (silencio = stop)");
+    const noise = await calibrateNoise();
 
-      await new Promise((resolve) => {
-        mediaRecorder.onstop = resolve;
-        try { mediaRecorder.stop(); } catch (_) { resolve(); }
-      });
+    // 3) start recorder NOW, then wait speech, then stop
+    const recPromise = recordOnce();
 
-      // armamos blob
-      const blob = new Blob(chunks, { type: "audio/webm" });
-      chunks = [];
-
-      stopStreamTracks();
-
-      // Turn: STT -> CHAT -> TTS -> PLAY
-      setAvatar("thinking");
-      log("SYS: STT...");
-
-      const userText = await window.VX_transcribeAudio(blob);
-      log("YOU: " + userText);
-
-      log("SYS: CHAT...");
-      const modeEl = document.getElementById("mode");
-      const mode = modeEl ? modeEl.value : "coach";
-      const reply = await window.VX_chatReply(userText, mode);
-      log("BOT: " + reply);
-
-      log("SYS: TTS...");
-      const audioBuf = await window.VX_ttsAudio(reply);
-
-      // speaking handled in VX_playAudio (start/ended)
-      await window.VX_playAudio(audioBuf);
-
-      // Listo para siguiente turno
-      setAvatar("idle");
-      log("SYS: ✅ Turno listo. Toca para hablar otra vez.");
-
-    } catch (e) {
-      setAvatar("idle");
-      log("SYS: ERROR: " + (e?.message || e));
-      console.error(e);
-    } finally {
-      busy = false;
+    const gate = await waitForSpeechAndAutoStop(noise);
+    if (!gate.started) {
+      // Stop everything if never started
+      await stopStream();
+      onState("idle");
+      onLog("SYS: No detecté voz. Intenta de nuevo.");
+      return;
     }
+
+    // stop recorder
+    try { mediaRecorder.stop(); } catch {}
+    const blob = await recPromise;
+
+    // 4) pipeline
+    onLog("SYS: STT...");
+    onState("thinking");
+    const text = await window.VX_transcribeAudio(blob);
+
+    const clean = (text || "").trim();
+    onLog("YOU: " + (clean || "(vacío)"));
+    if (!clean) {
+      onState("idle");
+      onLog("SYS: Habla 1–2s. Intenta de nuevo.");
+      return;
+    }
+
+    onLog("SYS: CHAT...");
+    const modeSel = document.getElementById("modeSelect");
+    const mode = modeSel ? modeSel.value : "coach";
+    const reply = await window.VX_chatReply(clean, { mode });
+
+    onLog("BOT: " + reply);
+
+    onLog("SYS: TTS...");
+    onState("speaking");
+    const audioBuf = await window.VX_ttsAudio(reply);
+
+    await window.VX_playAudio(audioBuf);
+
+    onState("idle");
   }
 
-  // ---------- Call control ----------
-  async function VX_startCall() {
+  // ===== Public API =====
+  async function VX_callStart() {
     if (callActive) return;
     callActive = true;
-    setAvatar("idle");
-    log("SYS: 📞 Llamada iniciada.");
-    await startRecording();
+    onLog("SYS: 📞 Llamada iniciada.");
+    onState("listening");
+
+    // loop until user stops
+    while (callActive) {
+      try {
+        await runOneTurn();
+        // pequeño respiro para que el browser suelte recursos
+        await new Promise(r => setTimeout(r, 120));
+      } catch (e) {
+        onLog("SYS: ERROR: " + (e && e.message ? e.message : String(e)));
+        // si falla un turno, seguimos (call continúa)
+        onState("idle");
+        await new Promise(r => setTimeout(r, 250));
+      }
+    }
+    await stopStream();
+    onState("idle");
+    onLog("SYS: 📴 Llamada detenida.");
   }
 
-  function VX_stopCall() {
+  async function VX_callStop() {
     callActive = false;
-    cleanupAnalyser();
-
-    try {
-      if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
-    } catch (_) {}
-
-    stopStreamTracks();
-    setAvatar("idle");
-    log("SYS: 📴 Llamada detenida.");
+    await stopStream();
+    onState("idle");
+    onLog("SYS: 📴 Llamada detenida.");
   }
 
-  window.VX_startCall = VX_startCall;
-  window.VX_stopCall = VX_stopCall;
+  function VX_setMic(id) {
+    deviceId = id || "";
+  }
 
-  console.log("✅ voiceRecorder loaded", {
-    startCall: typeof window.VX_startCall,
-    stopCall: typeof window.VX_stopCall,
-    setMic: typeof window.VX_setMic,
+  async function VX_refreshMics() {
+    const sel = document.getElementById("micSelect");
+    if (!sel) return;
+
+    // pide permiso para que salgan labels
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tmp.getTracks().forEach(t => t.stop());
+    } catch (e) {
+      sel.innerHTML = `<option value="">Permite micrófono</option>`;
+      return;
+    }
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter(d => d.kind === "audioinput");
+    sel.innerHTML = "";
+
+    if (!mics.length) {
+      sel.innerHTML = `<option value="">No se detectan micrófonos</option>`;
+      return;
+    }
+
+    const saved = localStorage.getItem("VX_MIC") || "";
+    for (const m of mics) {
+      const opt = document.createElement("option");
+      opt.value = m.deviceId;
+      opt.textContent = m.label || `Mic ${mics.indexOf(m) + 1}`;
+      if (saved && m.deviceId === saved) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+
+  // Exports + aliases (para que el index no se rompa jamás)
+  window.VX_callStart = VX_callStart;
+  window.VX_callStop = VX_callStop;
+  window.VX_setMic = VX_setMic;
+  window.VX_refreshMics = VX_refreshMics;
+
+  // device hotplug
+  navigator.mediaDevices?.addEventListener?.("devicechange", () => {
+    VX_refreshMics().catch(()=>{});
   });
 
+  console.log("✅ voiceRecorder loaded", {
+    callStart: typeof window.VX_callStart,
+    callStop: typeof window.VX_callStop,
+    setMic: typeof window.VX_setMic,
+    refreshMics: typeof window.VX_refreshMics
+  });
 })();
+
 
 
 
