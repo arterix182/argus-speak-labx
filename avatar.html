@@ -14,7 +14,11 @@
     *{box-sizing:border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;}
     body{margin:0; background:linear-gradient(180deg,#061225 0%, #050c18 100%); color:var(--txt);}
     .wrap{max-width:1100px; margin:0 auto; padding:22px;}
-    .card{background:linear-gradient(180deg,var(--card) 0%, var(--card2) 100%); border:1px solid var(--b); border-radius:var(--r); padding:18px; box-shadow:0 20px 60px rgba(0,0,0,.35);}
+    .card{
+      background:linear-gradient(180deg,var(--card) 0%, var(--card2) 100%);
+      border:1px solid var(--b); border-radius:var(--r); padding:18px;
+      box-shadow:0 20px 60px rgba(0,0,0,.35);
+    }
     h1{margin:0 0 6px 0; font-size:34px; letter-spacing:.3px;}
     .sub{color:var(--mut); margin:0 0 18px 0;}
     .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center;}
@@ -38,7 +42,24 @@
     .mut{color:var(--mut);}
     input[type="range"]{width:220px;}
     .small{font-size:13px; color:var(--mut);}
-    video{width:100%; border-radius:16px; border:1px solid #224a7d; background:#040b16;}
+
+    /* Avatar: 2 capas (closed + open) */
+    .avatarStack{position:relative;}
+    #avatarClosed, #avatarOpen{
+      width:100%;
+      border-radius:16px;
+      border:1px solid #224a7d;
+      background:#040b16;
+      display:block;
+      aspect-ratio: 16/9;
+      object-fit: cover;
+    }
+    #avatarOpen{
+      position:absolute; left:0; top:0;
+      opacity:0;
+      pointer-events:none;
+      transition: opacity 40ms linear;
+    }
   </style>
 </head>
 <body>
@@ -55,7 +76,9 @@
       <div class="row">
         <button class="btn" id="btnCall">Iniciar llamada</button>
         <button class="btn" id="btnTestText">Probar Chat (texto)</button>
+        <button class="btn" id="btnTestAudio">🔊 Test audio</button>
         <button class="btn" id="btnClear">Limpiar</button>
+        <button class="btn" id="btnReset">🧹 Reset beta</button>
 
         <span class="pill">Mic:</span>
         <select id="micSelect"></select>
@@ -73,11 +96,21 @@
 
       <div class="grid">
         <div class="box">
-          <div class="label">Avatar</div>
-          <!-- Pon tus mp4 en /assets/avatar_idle.mp4 etc -->
-          <video id="avatar" autoplay muted playsinline loop></video>
+          <div class="label">Avatar (Lip-sync)</div>
+
+          <div class="avatarStack">
+            <video id="avatarClosed" autoplay muted playsinline loop></video>
+            <video id="avatarOpen" autoplay muted playsinline loop></video>
+          </div>
+
           <div class="small" style="margin-top:8px;">
-            Requiere: <code>/assets/avatar_idle.mp4</code>, <code>avatar_listening.mp4</code>, <code>avatar_thinking.mp4</code>, <code>avatar_speaking.mp4</code>
+            Estados:
+            <code>/assets/avatar_idle.mp4</code>,
+            <code>avatar_listening.mp4</code>,
+            <code>avatar_thinking.mp4</code><br/>
+            Lip-sync:
+            <code>avatar_speaking_closed.mp4</code>,
+            <code>avatar_speaking_open.mp4</code>
           </div>
         </div>
 
@@ -107,22 +140,52 @@ function setState(st, msg=""){
 }
 
 /** =========================
- *  AVATAR 4 ESTADOS (mp4)
+ *  AVATAR ESTADOS + SPEAKING 2 CAPAS
  *  ========================= */
 const AVATAR = {
   idle:      "/assets/avatar_idle.mp4",
   listening: "/assets/avatar_listening.mp4",
   thinking:  "/assets/avatar_thinking.mp4",
-  speaking:  "/assets/avatar_speaking.mp4"
+  speaking_closed: "/assets/avatar_speaking_closed.mp4",
+  speaking_open:   "/assets/avatar_speaking_open.mp4"
 };
+
 function VX_setAvatarState(st){
-  const v = $("avatar");
-  const src = AVATAR[st] || AVATAR.idle;
-  if(v.dataset.src !== src){
-    v.dataset.src = src;
-    v.src = src;
-    v.play().catch(()=>{});
+  const vC = $("avatarClosed");
+  const vO = $("avatarOpen");
+
+  if(st !== "speaking"){
+    const src = AVATAR[st] || AVATAR.idle;
+
+    if(vC.dataset.src !== src){
+      vC.dataset.src = src;
+      vC.src = src;
+      vC.play().catch(()=>{});
+    }
+
+    // apaga open
+    vO.style.opacity = 0;
+    try{ vO.pause(); }catch(e){}
+    vO.removeAttribute("src");
+    vO.load();
+    return;
   }
+
+  // speaking: 2 capas
+  const srcC = AVATAR.speaking_closed;
+  const srcO = AVATAR.speaking_open;
+
+  if(vC.dataset.src !== srcC){
+    vC.dataset.src = srcC;
+    vC.src = srcC;
+  }
+  if(vO.dataset.src !== srcO){
+    vO.dataset.src = srcO;
+    vO.src = srcO;
+  }
+
+  vC.play().catch(()=>{});
+  vO.play().catch(()=>{});
 }
 
 /** =========================
@@ -174,11 +237,75 @@ async function VX_ttsAudio(text){
   return { buf, ct };
 }
 
-// player global
+// Player global único
 const VX_audioPlayer = new Audio();
 VX_audioPlayer.preload = "auto";
 VX_audioPlayer.muted = false;
 VX_audioPlayer.volume = 1;
+
+/** =========================
+ *  LIP SYNC (audio-reactive)
+ *  ========================= */
+let LIP_ctx = null;
+let LIP_analyser = null;
+let LIP_src = null;
+let LIP_data = null;
+let LIP_raf = null;
+
+function LIP_start(){
+  const vO = $("avatarOpen");
+  if(!vO) return;
+
+  if(!LIP_ctx || LIP_ctx.state === "closed"){
+    LIP_ctx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  LIP_ctx.resume().catch(()=>{});
+
+  if(!LIP_analyser){
+    LIP_analyser = LIP_ctx.createAnalyser();
+    LIP_analyser.fftSize = 512;
+    LIP_data = new Uint8Array(LIP_analyser.frequencyBinCount);
+  }
+
+  // MediaElementSource solo una vez por elemento
+  if(!LIP_src){
+    try{
+      LIP_src = LIP_ctx.createMediaElementSource(VX_audioPlayer);
+      LIP_src.connect(LIP_analyser);
+      LIP_analyser.connect(LIP_ctx.destination);
+    }catch(e){
+      console.warn("LipSync connect failed:", e);
+      return;
+    }
+  }
+
+  const tick = ()=>{
+    LIP_analyser.getByteFrequencyData(LIP_data);
+    let sum = 0;
+    for(let i=0;i<LIP_data.length;i++) sum += LIP_data[i];
+    const avg = sum / LIP_data.length; // 0..255
+
+    // Mapea energía -> 0..1 (ajusta sensibilidad aquí si quieres)
+    let open = (avg - 12) / 70;
+    open = Math.max(0, Math.min(1, open));
+
+    // opacidad de la capa "open"
+    vO.style.opacity = String(open * 0.95);
+
+    LIP_raf = requestAnimationFrame(tick);
+  };
+
+  if(!LIP_raf) tick();
+}
+
+function LIP_stop(){
+  const vO = $("avatarOpen");
+  if(vO) vO.style.opacity = 0;
+  if(LIP_raf){
+    cancelAnimationFrame(LIP_raf);
+    LIP_raf = null;
+  }
+}
 
 async function VX_playAudioAndWait(buf, mime){
   const blob = new Blob([buf], { type: (mime && mime.includes("audio")) ? mime : "audio/mpeg" });
@@ -193,12 +320,18 @@ async function VX_playAudioAndWait(buf, mime){
   VX_audioPlayer.muted = false;
   VX_audioPlayer.volume = 1;
 
+  // speaking + lip sync exacto cuando suena el audio
+  setState("speaking", "TTS...");
+  LIP_start();
+
   await VX_audioPlayer.play();
 
   await new Promise((resolve)=>{
     VX_audioPlayer.onended = ()=> resolve();
     VX_audioPlayer.onerror = ()=> resolve();
   });
+
+  LIP_stop();
 
   URL.revokeObjectURL(url);
   VX_audioPlayer._vxUrl = null;
@@ -384,7 +517,13 @@ async function runTurn(){
   const {buf, ct} = await VX_ttsAudio(reply);
   await VX_playAudioAndWait(buf, ct);
 
-  setState("idle","Listo");
+  // ✅ si sigue la llamada, vuelve a escuchar; si no, idle
+  if(callActive){
+    setState("listening", "Siguiente turno...");
+    addLog("SYS: Listo para escuchar de nuevo.");
+  }else{
+    setState("idle","Listo");
+  }
 }
 
 async function callLoop(){
@@ -431,6 +570,38 @@ $("btnClear").onclick = ()=>{
   setState("idle","");
 };
 
+$("btnReset").onclick = ()=>{
+  // Detén llamada
+  callActive = false;
+  try{ $("btnCall").textContent = "Iniciar llamada"; }catch{}
+  // Limpia UI
+  logEl.textContent = "SYS: reset OK.";
+  $("levelBar").value = 0;
+  $("levelTxt").textContent = "0";
+  setState("idle", "Reset");
+  // Pausa audio + lip
+  try{ VX_audioPlayer.pause(); }catch(e){}
+  try{ LIP_stop(); }catch(e){}
+  addLog("SYS: Beta reseteada.");
+};
+
+$("btnTestAudio").onclick = async ()=>{
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    g.gain.value = 0.06;
+    o.frequency.value = 660;
+    o.connect(g); g.connect(ctx.destination);
+    await ctx.resume();
+    o.start();
+    setTimeout(()=>{ o.stop(); ctx.close(); }, 200);
+    addLog("SYS: Test audio OK (beep).");
+  }catch(e){
+    addLog("SYS: Test audio ERROR: " + (e?.message||e));
+  }
+};
+
 $("btnTestText").onclick = async ()=>{
   await VX_unlockAudio().catch(()=>{});
   try{
@@ -438,14 +609,12 @@ $("btnTestText").onclick = async ()=>{
     addLog("SYS: CHAT (texto)...");
     const reply = await VX_chatReply("Give me one short correction + one example. Keep it very short.");
     addLog("BOT: " + reply);
-    setState("speaking","TTS...");
+
     const {buf, ct} = await VX_ttsAudio(reply);
     await VX_playAudioAndWait(buf, ct);
 
-// Si la llamada sigue, volvemos a escuchar; si no, idle.
-if(callActive) setState("listening","Siguiente turno...");
-else setState("idle","Listo");
-
+    if(callActive) setState("listening","Siguiente turno...");
+    else setState("idle","Listo");
   }catch(e){
     console.error(e);
     addLog("SYS: ERROR: " + (e?.message || e));
