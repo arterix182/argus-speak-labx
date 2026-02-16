@@ -132,29 +132,17 @@
     .led.on{background:var(--ok); box-shadow:0 0 0 3px rgba(32,211,107,.18), 0 0 22px rgba(32,211,107,.35);}
 
     .row2{display:flex; gap:10px; align-items:center; margin-top:10px;}
-    select{
-  width:100%;
-  padding:12px 12px;
-  border-radius:14px;
-  border:1px solid #223a62;
-  background:#071328;
-  color:#eaf2ff;
-  outline:none;
-}
-
-/* CLAVE: opciones visibles */
-select option{
-  background:#071328;
-  color:#eaf2ff;
-}
-
-/* En algunos Windows/Chrome ayuda mucho */
-select:focus{
-  border-color:#2a4c83;
-  box-shadow:0 0 0 3px rgba(42,76,131,.35);
-}
-
+    select, input[list]{
+      width:100%;
+      padding:12px 12px;
+      border-radius:14px;
+      border:1px solid var(--br);
+      background:#071328;
+      color:var(--txt);
+      outline:none;
     }
+    input[list]::placeholder{ color:#9fb4d6; opacity:.85; }
+
     .meterWrap{
       margin-top:12px;
       display:flex; align-items:center; gap:10px;
@@ -265,9 +253,10 @@ select:focus{
           <option value="friendly">Friendly</option>
           <option value="strict">Strict</option>
         </select>
-        <select id="micSelect">
-          <option value="">Cargando micrófonos...</option>
-        </select>
+
+        <!-- PLAN B INFALIBLE: input + datalist -->
+        <input id="micInput" list="micList" placeholder="Selecciona micrófono (escribe y elige)" />
+        <datalist id="micList"></datalist>
       </div>
 
       <div class="meterWrap">
@@ -303,12 +292,9 @@ select:focus{
   </div>
 </div>
 
-<!-- JS (orden IMPORTA: pipeline primero, recorder después)
-     TU SITIO EN PRODUCCIÓN CARGA DESDE /js/
-     Así lo dejamos para que coincida con tu "view source".
--->
-<script src="/js/voicePipeline.js?v=301"></script>
-<script src="/js/voiceRecorder.js?v=301"></script>
+<!-- JS (orden IMPORTA: pipeline primero, recorder después) -->
+<script src="/js/voicePipeline.js?v=310"></script>
+<script src="/js/voiceRecorder.js?v=310"></script>
 
 <script>
   // ===== UI helpers =====
@@ -323,10 +309,13 @@ select:focus{
   const btnTestText = document.getElementById("btnTestText");
   const btnSendText = document.getElementById("btnSendText");
   const textInput = document.getElementById("textInput");
-  const micSelect = document.getElementById("micSelect");
   const btnRefreshMics = document.getElementById("btnRefreshMics");
   const btnResetMic = document.getElementById("btnResetMic");
   const modeSelect = document.getElementById("modeSelect");
+
+  // Mic UI (Plan B)
+  const micInput = document.getElementById("micInput");
+  const micList  = document.getElementById("micList");
 
   // Avatar
   const avatarVideo = document.getElementById("avatarVideo");
@@ -358,7 +347,6 @@ select:focus{
     stateChip.textContent = state;
     const src = AVATAR[state] || AVATAR.idle;
 
-    // Evita reiniciar si no cambió
     if (avatarVideo.dataset.src === src) return;
     avatarVideo.dataset.src = src;
 
@@ -366,7 +354,6 @@ select:focus{
       const r = await fetch(src, { method:"HEAD", cache:"no-store" });
       if(!r.ok) throw new Error("missing");
 
-      // Video existe
       missingBox.style.display = "none";
       avatarImg.style.display = "none";
 
@@ -374,7 +361,6 @@ select:focus{
       avatarVideo.loop = true;
       await avatarVideo.play().catch(()=>{});
     }catch(e){
-      // Video NO existe -> fallback
       missingBox.style.display = "block";
 
       avatarVideo.pause?.();
@@ -386,55 +372,53 @@ select:focus{
     }
   }
 
-  // ===== Mic selector =====
-  async function fillMicSelect(){
+  // ===== Mic selector: llena datalist con mics =====
+  async function fillMicList(){
     if (typeof window.VX_refreshMics !== "function"){
-      micSelect.innerHTML = `<option value="">ERROR: no cargó VX_refreshMics</option>`;
       addLog("SYS: ERROR: No existe VX_refreshMics (voiceRecorder.js no cargó).");
+      micInput.placeholder = "ERROR: no cargó VX_refreshMics";
       return;
     }
 
     const res = await window.VX_refreshMics();
-
     if (!res || !res.ok){
-      micSelect.innerHTML = `<option value="">No se pudo listar micrófonos</option>`;
       addLog("SYS: ❌ No se pudo listar micrófonos: " + (res?.error || "unknown"));
+      micInput.placeholder = "No se pudo listar micrófonos";
       return;
     }
 
     const mics = res.mics || [];
-    micSelect.innerHTML = "";
+    micList.innerHTML = "";
 
-    const optDefault = document.createElement("option");
-    optDefault.value = "";
-    optDefault.textContent = "Micrófono (default)";
-    micSelect.appendChild(optDefault);
-
+    // Inyectamos opciones visibles
+    // Nota: datalist muestra value; usamos value=deviceId y label para humano.
     for (const m of mics){
       const opt = document.createElement("option");
-      opt.value = m.deviceId;
-      opt.textContent = m.label || "Micrófono";
-      micSelect.appendChild(opt);
+      opt.value = m.deviceId;              // lo que se guarda y se pasa al recorder
+      opt.label = m.label || "Micrófono";  // lo que se ve en algunos navegadores
+      micList.appendChild(opt);
     }
 
-    addLog(`SYS: 🎙️ Mics cargados: ${mics.length}`);
+    addLog(`SYS: 🎙️ Mics listados: ${mics.length}`);
 
+    // Reaplica guardado
     const saved = localStorage.getItem("VX_MIC") || "";
-    if (saved) micSelect.value = saved;
+    if (saved) micInput.value = saved;
   }
 
-  btnRefreshMics.onclick = fillMicSelect;
+  btnRefreshMics.onclick = fillMicList;
 
   btnResetMic.onclick = () => {
     localStorage.removeItem("VX_MIC");
-    addLog("SYS: VX_MIC borrado. Recarga para re-detectar.");
+    micInput.value = "";
+    addLog("SYS: VX_MIC borrado. Listo.");
   };
 
-  micSelect.addEventListener("change", () => {
-    const id = micSelect.value;
+  micInput.addEventListener("change", () => {
+    const id = (micInput.value || "").trim();
     localStorage.setItem("VX_MIC", id);
     if (window.VX_setMic) window.VX_setMic(id);
-    addLog("SYS: Mic seleccionado: " + (id ? "custom" : "default"));
+    addLog("SYS: Mic seleccionado (deviceId guardado).");
   });
 
   // ===== Bind pipeline/recorder callbacks =====
@@ -467,8 +451,8 @@ select:focus{
         return;
       }
 
-      // ✅ Usa mic guardado
-      const selectedMic = localStorage.getItem("VX_MIC") || "";
+      // ✅ Usa mic guardado (deviceId) desde input
+      const selectedMic = (localStorage.getItem("VX_MIC") || "").trim();
 
       paintCall(true);
       await fn(selectedMic).catch(err=>{
@@ -517,14 +501,13 @@ select:focus{
   // ===== Init =====
   (async ()=>{
     addLog("SYS: UI lista.");
-
     await setAvatarState("idle");
 
-    // Llenar mics automáticamente al abrir
-    await fillMicSelect();
+    // Cargar mic list
+    await fillMicList();
 
-    // Aplicar mic guardado al pipeline si existe
-    const saved = localStorage.getItem("VX_MIC") || "";
+    // Aplicar guardado al recorder si existe
+    const saved = (localStorage.getItem("VX_MIC") || "").trim();
     if (saved && window.VX_setMic) window.VX_setMic(saved);
   })();
 
@@ -535,6 +518,7 @@ select:focus{
 
 </body>
 </html>
+
 
 
 
