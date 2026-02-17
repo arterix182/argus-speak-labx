@@ -94,24 +94,25 @@
 /* ===== NUEVO: Boca por sprites (mouth_closed/open) ===== */
 .avatarWrap{
   /* Ajusta estos 4 valores si la boca no cae justo en su lugar */
-  --mouth-x: 41%;   /* izquierda */
-  --mouth-y: 61.5%; /* arriba */
-  --mouth-w: 18%;   /* ancho */
+  --mouth-x: 45%;   /* izquierda */
+  --mouth-y: 37%; /* arriba */
+  --mouth-w: 22%;   /* ancho */
   --mouth-h: 12%;   /* alto */
 }
 .mouthLayer{display:none !important;} /* desactivamos el método viejo */
 
 /* Contenedor donde va la boca */
+/* Contenedor de boca */
 .mouthBox{
   position:absolute;
-  left: var(--mouth-x, 41%);
-  top:  var(--mouth-y, 61.5%);
-  width:  var(--mouth-w, 18%);
-  height: var(--mouth-h, 12%);
+  left: var(--mouth-x);
+  top:  var(--mouth-y);
+  width:  var(--mouth-w);
+  height: var(--mouth-h);
   transform: translate(-50%, -50%);
-  overflow: hidden;          /* CLAVE: recorta */
+  overflow: hidden;          /* recorta */
   pointer-events:none;
-  z-index: 5;
+  z-index: 10;
 }
 
 /* Las imágenes de boca (closed/open) */
@@ -120,12 +121,13 @@
   inset:0;
   width:100%;
   height:100%;
-  object-fit: cover;         /* CLAVE: llena el cuadro (zoom) */
-  object-position: 50% 62%;  /* CLAVE: centra en la boca (ajusta %) */
-  transform: scale(4.2);     /* CLAVE: zoom extra para que no se vea el avatar mini */
-  transform-origin: 50% 62%;
+  object-fit: cover;         /* llena el cuadro */
+  object-position: 50% 37%;  /* apunta a la zona de boca */
+  transform: scale(4.2);     /* zoom para evitar mini avatar */
+  transform-origin: 50% 37%;
   pointer-events:none;
 }
+
 
 .mouthSprite{
   position:absolute;
