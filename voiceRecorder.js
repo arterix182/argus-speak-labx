@@ -127,6 +127,7 @@
   function detectSilenceAndStop(getRms, th){
     let startedTalking = false;
     let silenceSince = null;
+    let peakRms = 0; // pico reciente para corte por caída (anti-ruido)
 
     const startTh   = th?.start ?? START_THRESHOLD;
     const silenceTh = th?.silence ?? SILENCE_THRESHOLD;
@@ -139,6 +140,7 @@
       const t = setInterval(()=>{
         if(!callActive || !mediaRecorder) { clearInterval(t); return resolve("stopped"); }
         const rms = getRms();
+        if(heardVoice){ peakRms = Math.max(peakRms*0.995, rms); }
 
         // Tope duro del turno (por si el mic está raro o el ruido no deja cortar)
         if(Date.now() - turnStart > maxTurnMs){
@@ -165,7 +167,8 @@
           return;
         }
 
-        if(rms < silenceTh){
+        const dynSilenceTh = heardVoice ? Math.max(silenceTh, peakRms * 0.28) : silenceTh;
+        if(rms < dynSilenceTh){
           if(silenceSince == null) silenceSince = Date.now();
           if(Date.now() - silenceSince >= SILENCE_HOLD_MS){
             clearInterval(t);
@@ -235,8 +238,8 @@
       // En ambientes ruidosos sube thresholds automáticamente.
       start:   Math.max(0.018, noise * 2.4),
       silence: Math.max(0.010, noise * 1.6),
-      maxTalkMs: 9000,
-      maxTurnMs: 12000,
+      maxTalkMs: 7000,
+      maxTurnMs: 8500,
     };
 
     // auto-stop por silencio
@@ -367,6 +370,5 @@
     TIMESLICE_MS
   });
 })();
-
 
 

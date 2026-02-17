@@ -33,12 +33,10 @@
       transition: transform 180ms ease, filter 180ms ease, box-shadow 180ms ease;
     }
     #avatarImg.idle{filter:none;transform:scale(1);box-shadow:none}
-    #avatarImg.listening{transform:scale(1.01);box-shadow:0 0 22px rgba(68,255,136,.35)}
-    #avatarImg.thinking{transform:scale(1.015);filter:brightness(1.05) saturate(1.05);box-shadow:0 0 28px rgba(255,202,92,.28)}
-    #avatarImg.speaking{box-shadow:0 0 36px rgba(120,200,255,.40);animation:avatarPulse 520ms ease-in-out infinite}
-    @keyframes avatarPulse{
-      0%{transform:scale(1.01);filter:brightness(1.03)}
-      50%{transform:scale(1.03);filter:brightness(1.07)}
+    #avatarImg.listening{transform:scale(1);box-shadow:0 0 22px rgba(68,255,136,.35)}
+    #avatarImg.thinking{transform:scale(1);filter:brightness(1.05) saturate(1.05);box-shadow:0 0 28px rgba(255,202,92,.28)}
+    #avatarImg.speaking{transform:scale(1);box-shadow:0 0 36px rgba(120,200,255,.40);animation:none}
+    50%{transform:scale(1.03);filter:brightness(1.07)}
       100%{transform:scale(1.01);filter:brightness(1.03)}
     }
     .mini{opacity:.7;font-size:12px;margin-top:8px}
@@ -95,9 +93,9 @@
 .avatarWrap{
   /* Ajusta estos 4 valores si la boca no cae justo en su lugar */
   --mouth-x: 50%;   /* izquierda */   /* izquierda */
-  --mouth-y: 44.4%;  /* arriba */ /* arriba */
+  --mouth-y: 44%;  /* arriba */ /* arriba */
   --mouth-w: 16%;  /* ancho */   /* ancho */
-  --mouth-h: 10%;   /* alto */   /* alto */
+  --mouth-h: 9%;   /* alto */   /* alto */
 }
 .mouthLayer{display:none !important;} /* desactivamos el método viejo */
 
@@ -475,7 +473,6 @@ console.error(e);
   </script>
 </body>
 </html>
-
 
 
 
