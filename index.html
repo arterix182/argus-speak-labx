@@ -103,29 +103,42 @@
 
 /* Contenedor donde va la boca */
 /* Contenedor de boca */
+/* Caja de boca: invisible, recorta y suaviza bordes */
 .mouthBox{
   position:absolute;
-  left: var(--mouth-x);
-  top:  var(--mouth-y);
-  width:  var(--mouth-w);
-  height: var(--mouth-h);
+  left: var(--mouth-x, 45%);
+  top:  var(--mouth-y, 37%);
+  width:  var(--mouth-w, 18%);
+  height: var(--mouth-h, 10%);
   transform: translate(-50%, -50%);
-  overflow: hidden;          /* recorta */
-  pointer-events:none;
+  overflow: hidden;
+  background: transparent !important;   /* QUITA cualquier negro */
+  border: 0 !important;                 /* QUITA cualquier borde */
+  border-radius: 999px;                 /* adiós “cuadro” */
   z-index: 10;
+  pointer-events:none;
+
+  /* Feather (difumina borde para que no se note el parche) */
+  -webkit-mask-image: radial-gradient(closest-side, #000 72%, transparent 100%);
+          mask-image: radial-gradient(closest-side, #000 72%, transparent 100%);
 }
 
-/* Las imágenes de boca (closed/open) */
+/* Imágenes dentro: zoom + apuntar a la boca */
 .mouthBox img{
   position:absolute;
   inset:0;
   width:100%;
   height:100%;
-  object-fit: cover;         /* llena el cuadro */
-  object-position: 50% 37%;  /* apunta a la zona de boca */
-  transform: scale(4.2);     /* zoom para evitar mini avatar */
-  transform-origin: 50% 37%;
+  object-fit: cover;
+  object-position: 50% 43%;   /* AJUSTA: sube/baja el “apunte” */
+  transform: scale(6.0);      /* AJUSTA: zoom para que sólo sea boca */
+  transform-origin: 50% 43%;
   pointer-events:none;
+}
+
+/* Para que el cambio entre closed/open no “corte” */
+#mou​thClosed, #mouthOpen{
+  transition: opacity 60ms linear;
 }
 
 
