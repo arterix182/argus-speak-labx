@@ -1054,6 +1054,7 @@ const views = {
   vocab: $("#view-vocab"),
   daily: $("#view-daily"),
   training: $("#view-training"),
+  avatar: $("#view-avatar"),
 };
 
 
