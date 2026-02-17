@@ -101,16 +101,32 @@
 }
 .mouthLayer{display:none !important;} /* desactivamos el método viejo */
 
+/* Contenedor donde va la boca */
 .mouthBox{
   position:absolute;
-  left: var(--mouth-x);
-  top:  var(--mouth-y);
-  width: var(--mouth-w);
-  height: var(--mouth-h);
+  left: var(--mouth-x, 41%);
+  top:  var(--mouth-y, 61.5%);
+  width:  var(--mouth-w, 18%);
+  height: var(--mouth-h, 12%);
+  transform: translate(-50%, -50%);
+  overflow: hidden;          /* CLAVE: recorta */
   pointer-events:none;
-  transform-origin: 50% 60%;
-  will-change: transform, opacity;
+  z-index: 5;
 }
+
+/* Las imágenes de boca (closed/open) */
+.mouthBox img{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit: cover;         /* CLAVE: llena el cuadro (zoom) */
+  object-position: 50% 62%;  /* CLAVE: centra en la boca (ajusta %) */
+  transform: scale(4.2);     /* CLAVE: zoom extra para que no se vea el avatar mini */
+  transform-origin: 50% 62%;
+  pointer-events:none;
+}
+
 .mouthSprite{
   position:absolute;
   inset:0;
