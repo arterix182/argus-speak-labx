@@ -8,6 +8,11 @@ export async function handler(event) {
     const key = process.env.OPENAI_API_KEY;
     if (!key) return json(500, { error: "Missing OPENAI_API_KEY" });
 
+    // ✅ Warm-up / keep-alive: evita 405 en el frontend (NO llama a OpenAI)
+    if ((event.httpMethod || "GET").toUpperCase() === "GET") {
+      return json(200, { ok: true });
+    }
+
     if ((event.httpMethod || "POST").toUpperCase() !== "POST") {
       return json(405, { error: "Method not allowed" });
     }

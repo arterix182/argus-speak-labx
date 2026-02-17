@@ -140,7 +140,8 @@
       const t = setInterval(()=>{
         if(!callActive || !mediaRecorder) { clearInterval(t); return resolve("stopped"); }
         const rms = getRms();
-        if(heardVoice){ peakRms = Math.max(peakRms*0.995, rms); }
+        // "heardVoice" ya no existe; usamos startedTalking como señal de que ya hubo voz.
+        if(startedTalking){ peakRms = Math.max(peakRms*0.995, rms); }
 
         // Tope duro del turno (por si el mic está raro o el ruido no deja cortar)
         if(Date.now() - turnStart > maxTurnMs){
@@ -167,7 +168,7 @@
           return;
         }
 
-        const dynSilenceTh = heardVoice ? Math.max(silenceTh, peakRms * 0.28) : silenceTh;
+        const dynSilenceTh = startedTalking ? Math.max(silenceTh, peakRms * 0.28) : silenceTh;
         if(rms < dynSilenceTh){
           if(silenceSince == null) silenceSince = Date.now();
           if(Date.now() - silenceSince >= SILENCE_HOLD_MS){
