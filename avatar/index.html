@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Avatar Beta (Voz → IA → Voz)</title>
+  <style>
+    body{margin:0;background:#071426;color:#eaf2ff;font-family:system-ui,-apple-system,Segoe UI,Roboto}
+    .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
+    .card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,.35)}
+    h1{margin:0 0 8px;font-size:30px}
+    .sub{opacity:.85;margin:0 0 16px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    button,select,input{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#eaf2ff;border-radius:14px;padding:12px 14px;font-size:15px}
+    button{cursor:pointer}
+    button.primary{background:linear-gradient(135deg, rgba(0,140,255,.35), rgba(0,255,200,.15));border-color:rgba(0,180,255,.35)}
+    button.danger{background:rgba(255,70,70,.16);border-color:rgba(255,70,70,.25)}
+    .pill{display:inline-flex;gap:10px;align-items:center;padding:10px 12px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10)}
+    .dot{width:10px;height:10px;border-radius:50%;background:#44ff88;box-shadow:0 0 18px rgba(68,255,136,.7)}
+    .label{opacity:.85}
+    .grid{display:grid;grid-template-columns:420px 1fr;gap:14px;margin-top:14px}
+    @media (max-width:1000px){.grid{grid-template-columns:1fr}}
+    .log{background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:12px;min-height:280px;white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New";font-size:13px}
+    .meterWrap{display:flex;align-items:center;gap:10px;min-width:280px}
+    .meter{width:220px;height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;border:1px solid rgba(255,255,255,.12)}
+    .bar{height:100%;width:0%}
+    .avatarBox{background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.10);border-radius:18px;padding:12px}
+#avatarImg{
+      width:100%;
+      border-radius:14px;
+      background:#000;
+      display:block;
+      transition: transform 180ms ease, filter 180ms ease, box-shadow 180ms ease;
+    }
+    #avatarImg.idle{filter:none;transform:scale(1);box-shadow:none}
+    #avatarImg.listening{transform:scale(1);box-shadow:0 0 22px rgba(68,255,136,.35)}
+    #avatarImg.thinking{transform:scale(1);filter:brightness(1.05) saturate(1.05);box-shadow:0 0 28px rgba(255,202,92,.28)}
+    #avatarImg.speaking{transform:scale(1);box-shadow:0 0 36px rgba(120,200,255,.40);animation:none}
+    50%{transform:scale(1.03);filter:brightness(1.07)}
+      100%{transform:scale(1.01);filter:brightness(1.03)}
+    }
+    .mini{opacity:.7;font-size:12px;margin-top:8px}
+
+/* ===== Pro Avatar Layers (lipsync TTS + blink) ===== */
+.avatarWrap{position:relative;border-radius:14px;overflow:hidden}
+/* Capas usando la misma imagen como fondo para que encaje perfecto */
+.mouthLayer,.eyesLayer{
+  position:absolute; inset:0; pointer-events:none;
+  background-image:url("/assets/avatar_open.png");
+
+  /* 🔥 CLAVE: 1:1 exacto con el <img> */
+  background-size: 100% 100%;
+  background-position: 0 0;
+  background-repeat:no-repeat;
+
+  transform-origin:50% 50%;
+  will-change:transform, filter;
+}
+
+/* BOCA (más compacto y centrado) */
+.mouthLayer{
+  /* x: 41–59%, y: 61–73% */
+  clip-path: polygon(41% 61%, 59% 61%, 63% 73%, 37% 73%);
+  transform-origin:50% 67%;
+}
+
+/* OJOS (solo párpados/ojos, menos frente) */
+.eyesLayer{
+  /* x: 30–70%, y: 27–41% */
+  clip-path: polygon(30% 27%, 70% 27%, 76% 41%, 24% 41%);
+  transform-origin:50% 34%;
+}
+
+.eyesLayer.blink{
+  transform: scaleY(0.08);
+  filter: brightness(0.96);
+  transition: transform 90ms ease;
+}
+
+  
+/* NUEVO: overlay de parpadeo real (avatar_blink.png) */
+.blinkImg{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  pointer-events:none;
+  opacity:0;
+  transition: opacity 90ms ease;
+}
+/* ===== NUEVO: Boca por sprites (mouth_closed/open) ===== */
+.avatarWrap{
+  /* Ajusta estos 4 valores si la boca no cae justo en su lugar */
+  --mouth-x: 50%;   /* izquierda */   /* izquierda */
+  --mouth-y: 44.4%;  /* arriba */ /* arriba */
+  --mouth-w: 16%;  /* ancho */   /* ancho */
+  --mouth-h: 10%;   /* alto */   /* alto */
+}
+.mouthLayer{display:none !important;} /* desactivamos el método viejo */
+
+.mouthBox{
+  position:absolute;
+  left: var(--mouth-x);
+  top:  var(--mouth-y);
+  width: var(--mouth-w);
+  height: var(--mouth-h);
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  border-radius: 999px;
+  background: transparent;
+  z-index: 10;
+  pointer-events:none;
+  will-change: transform, opacity;
+}
+.mouthSprite{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit: cover;           /* llena el cuadro */
+  object-position: 50% 44%;    /* apunta a la boca (ajusta 42–48) */
+  transform: scale(6);         /* zoom (ajusta 5–7) */
+  transform-origin: 50% 44%;
+  user-select:none;
+  pointer-events:none;
+}
+.mouthSprite.mouthOpen{opacity:0;}
+
+</style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <h1>Avatar Beta (Voz → IA → Voz)</h1>
+          <p class="sub">Toca “Iniciar llamada”. Se detiene por silencio (~0.8s) y vuelve a escuchar automáticamente.</p>
+        </div>
+        <div class="pill">
+          <span class="dot" id="dot"></span>
+          <span class="label" id="stateLabel">idle</span>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="btnCall">📞 Iniciar llamada</button>
+        <button id="btnTestText">Probar Chat (texto)</button>
+        <button class="danger" id="btnClear">Limpiar</button>
+
+        <div class="meterWrap">
+          <div class="meter"><div class="bar" id="lvlBar"></div></div>
+          <span class="label">Nivel</span>
+        </div>
+
+        <select id="micSelect" style="min-width:260px">
+          <option value="">Micrófono…</option>
+        </select>
+        <button id="btnRefreshMics">Actualizar mics</button>
+      </div>
+
+      <div class="grid">
+        <div class="avatarBox">
+            <div id="avatarWrap" class="avatarWrap idle">
+          <img id="avatarImg" src="/assets/avatar_open.png" alt="Avatar" />
+          <div id="mouthBox" class="mouthBox" aria-hidden="true">
+            <img id="mouthClosed" class="mouthSprite" src="/assets/mouth_closed.png" alt="" />
+            <img id="mouthOpen" class="mouthSprite mouthOpen" src="/assets/mouth_open.png" alt="" />
+          </div>
+          <img id="blinkImg" class="blinkImg" src="/assets/avatar_blink.png" alt="" />
+        </div>
+        <div class="mini" id="avatarHint">Avatar: lipsync (TTS) + blink (pro)</div>
+      </div>
+
+        <div>
+          <h2 style="margin:0 0 10px">Log</h2>
+          <div class="log" id="log"></div>
+
+          <div class="row" style="margin-top:10px">
+            <input id="txt" placeholder='Ej: "I no have time yesterday"' style="flex:1;min-width:260px" />
+            <button id="btnSendText">Enviar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- IMPORTANTÍSIMO: NO pongas type="module" aquí -->
+  <script src="./voicePipeline.js?v=1"></script>
+  <script src="./voiceRecorder.js?v=1"></script>
+
+  <script>
+    const logEl = document.getElementById("log");
+    const stateLabel = document.getElementById("stateLabel");
+    const dot = document.getElementById("dot");
+   function formatErr(err) {
+     if (typeof err === "string") return err;
+     if (err instanceof Error) return err.message || String(err);
+     try { return JSON.stringify(err, null, 2); }
+     catch { return String(err); }
+    }
+
+    function addLog(s){
+      const ts = new Date().toLocaleTimeString();
+      logEl.textContent += `[${ts}] ${s}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setState(s){
+      stateLabel.textContent = s;
+      dot.style.background = (s==="speaking") ? "#7cf" : (s==="thinking") ? "#ffca5c" : (s==="listening") ? "#44ff88" : "#8899aa";
+      addLog(`SYS: Estado = ${s}`);
+    }
+
+    // Eventos desde recorder/pipeline
+    window.addEventListener("VX_STATE", (e)=> setState(e.detail?.state || "idle"));
+    // Avatar state driver (IMG + efectos)
+    const avatarImg = document.getElementById("avatarImg");
+    function setAvatar(state){
+      const s = state || "idle";
+      if (!avatarImg) return;
+      avatarImg.classList.remove("idle","listening","thinking","speaking");
+      avatarImg.classList.add(s);
+    }
+    window.addEventListener("VX_AVATAR", (e)=> setAvatar(e.detail?.state || "idle"));
+    
+setAvatar("idle");
+
+// ===== PRO: Lipsync usando el audio real del BOT (TTS) + Blink =====
+const avatarWrap = document.getElementById("avatarWrap");
+const mouthBox = document.getElementById("mouthBox");
+const mouthClosed = document.getElementById("mouthClosed");
+const mouthOpen = document.getElementById("mouthOpen");
+const blinkImg  = document.getElementById("blinkImg");
+
+// Audio del bot + analyser (WebAudio) para lipsync real
+let botAudio = null;
+let botCtx = null;
+let botAnalyser = null;
+let botData = null;
+
+function ensureBotAnalyser(){
+  if (!botAudio){
+    botAudio = new Audio();
+    botAudio.preload = "auto";
+    botAudio.crossOrigin = "anonymous";
+    window.__VX_botAudio = botAudio;
+  }
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return false;
+
+  if (!botCtx){
+    botCtx = new Ctx();
+    try { botCtx.resume?.(); } catch {}
+    const src = botCtx.createMediaElementSource(botAudio);
+    botAnalyser = botCtx.createAnalyser();
+    botAnalyser.fftSize = 1024;
+    botData = new Uint8Array(botAnalyser.fftSize);
+    src.connect(botAnalyser);
+    botAnalyser.connect(botCtx.destination);
+  } else {
+    try { botCtx.resume?.(); } catch {}
+  }
+  return true;
+}
+
+function getBotRms(){
+  if(!botAnalyser || !botData) return 0;
+  botAnalyser.getByteTimeDomainData(botData);
+  let sum = 0;
+  for(let i=0;i<botData.length;i++){
+    const v = (botData[i]-128)/128;
+    sum += v*v;
+  }
+  return Math.sqrt(sum/botData.length);
+}
+
+// Lipsync loop: mueve solo la "boca" cuando el estado es speaking
+let __vxSpeaking = false;
+function lipsyncLoop(){
+  if (mouthBox && mouthClosed && mouthOpen){
+    const rms = __vxSpeaking ? getBotRms() : 0;
+
+    // Sensibilidad: ajusta si abre muy poco o demasiado
+    const base = 0.006;
+    const range = 0.030;
+    let amp = (rms - base) / range;
+    amp = Math.max(0, Math.min(1, amp));
+
+    // Crossfade entre boca cerrada y abierta
+    mouthOpen.style.opacity = String(amp);
+    mouthClosed.style.opacity = String(1 - amp);
+
+    // Micro movimiento pro (head/mouth bob)
+    const openScale = 1 + amp * 0.20;
+    const lift = amp * -1.0;
+    mouthBox.style.transform = `translate(-50%, -50%) translateY(${lift}px) scaleY(${openScale})`;
+  }
+  requestAnimationFrame(lipsyncLoop);
+}
+lipsyncLoop();
+
+// Blink aleatorio: cada 2–6s, 120ms (overlay blinkImg)
+(function scheduleBlink(){
+  const wait = 2000 + Math.random()*4000;
+  setTimeout(()=>{
+    if (blinkImg){
+      blinkImg.style.opacity = "1";
+      setTimeout(()=> blinkImg.style.opacity = "0", 120);
+    }
+    scheduleBlink();
+  }, wait);
+})();
+
+
+// Mantén __vxSpeaking sincronizado con el estado
+window.addEventListener("VX_AVATAR", (e)=>{
+  const st = e.detail?.state || "idle";
+  __vxSpeaking = (st === "speaking");
+  if (avatarWrap){
+    avatarWrap.classList.remove("idle","listening","thinking","speaking");
+    avatarWrap.classList.add(st);
+  }
+});
+
+// Override seguro de VX_ttsSpeak para usar botAudio + analyser (misma API para voiceRecorder)
+(function patchTTS(){
+  const original = window.VX_ttsSpeak;
+  window.VX_ttsSpeak = async function(text, opts = {}){
+    const t = String(text||"").trim();
+    if(!t) return;
+
+    // asegura analyser para lipsync
+    ensureBotAnalyser();
+
+    // recorta SOLO para voz (latencia)
+    const tSpeak = t.length > 240 ? (t.slice(0,240).replace(/\s+\S*$/, "") + "…") : t;
+
+    const payload = {
+      text: tSpeak,
+      model: "tts-1",
+      voice: "nova",
+      format: "mp3",
+      speed: 0.85,
+      ...(opts||{})
+    };
+
+    const r = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(payload),
+    });
+
+    if(!r.ok){
+      const errTxt = await r.text();
+      // si existía original, intenta fallback (por si tu pipeline tenía otra ruta)
+      if (typeof original === "function") {
+        try { return await original(t, opts); } catch {}
+      }
+      throw new Error(`TTS ${r.status}: ${errTxt}`);
+    }
+
+    const blob = await r.blob();
+    if(!blob || !blob.size) throw new Error("TTS returned empty audio");
+
+    const url = URL.createObjectURL(blob);
+
+    // autoplay policies: en click del usuario normalmente deja; si falla, no rompe la llamada.
+    botAudio.src = url;
+
+    try{
+      await botAudio.play();
+    }catch(_){
+      // Si el navegador bloquea autoplay, igual resolvemos para no "congelar" el flujo.
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    await new Promise((resolve)=>{
+      botAudio.onended = () => resolve();
+      botAudio.onerror = () => resolve();
+    });
+
+    try { URL.revokeObjectURL(url); } catch {}
+  };
+})();
+// UI wires
+    const micSelect = document.getElementById("micSelect");
+    const lvlBar = document.getElementById("lvlBar");
+
+    document.getElementById("btnRefreshMics").onclick = async ()=>{
+      try{
+        addLog("SYS: Actualizando micrófonos…");
+        const list = await window.VX_refreshMics();
+        micSelect.innerHTML = `<option value="">Micrófono…</option>` + list.map(d => `<option value="${d.deviceId}">${d.label || "Mic (sin nombre)"}</option>`).join("");
+        addLog(`SYS: Mics encontrados = ${list.length}`);
+      }catch(err){
+       addLog("ERROR: " + formatErr(err));
+console.error(err);
+
+        alert("No pude listar micrófonos. Revisa consola.");
+      }
+    };
+
+    micSelect.onchange = ()=>{
+      window.VX_setMic(micSelect.value);
+      addLog("SYS: Mic seleccionado = " + micSelect.value);
+    };
+
+    window.VX_onLevel = (v)=>{
+      const pct = Math.max(0, Math.min(100, Math.round(v*100)));
+      lvlBar.style.width = pct + "%";
+      lvlBar.style.background = "linear-gradient(90deg, rgba(0,255,200,.7), rgba(0,140,255,.7))";
+    };
+
+    const btnCall = document.getElementById("btnCall");
+    let callOn = false;
+
+    btnCall.onclick = async ()=>{
+      try{
+        if(!callOn){
+          callOn = true;
+          btnCall.textContent = "🟥 Colgar";
+          addLog("SYS: Llamada iniciada.");
+          await window.VX_callStart({
+            onUserText: (t)=> addLog("YOU: " + t),
+            onBotText:  (t)=> addLog("BOT: " + t)
+          });
+        }else{
+          callOn = false;
+          btnCall.textContent = "📞 Iniciar llamada";
+          addLog("SYS: Llamada detenida.");
+          await window.VX_callStop();
+        }
+      }catch(e){
+        callOn = false;
+        btnCall.textContent = "📞 Iniciar llamada";
+        addLog("ERROR: " + formatErr(e));
+console.error(e);
+
+        alert("Falló voz/IA. Revisa consola.");
+      }
+    };
+
+    document.getElementById("btnClear").onclick = ()=>{
+      logEl.textContent = "";
+      addLog("SYS: Limpio.");
+    };
+
+    document.getElementById("btnTestText").onclick = async ()=>{
+      const txt = "Hello, quick test.";
+      addLog("YOU: " + txt);
+      const rep = await window.VX_chatReply(txt);
+      addLog("BOT: " + rep);
+      await window.VX_ttsSpeak(rep);
+    };
+
+    document.getElementById("btnSendText").onclick = async ()=>{
+      const t = document.getElementById("txt").value.trim();
+      if(!t) return;
+      addLog("YOU: " + t);
+      const rep = await window.VX_chatReply(t);
+      addLog("BOT: " + rep);
+      await window.VX_ttsSpeak(rep);
+    };
+
+    // auto-refresh mics al cargar (sin pedir permiso aún)
+    (async()=>{ try{ await window.VX_refreshMics().then(list=>{
+      micSelect.innerHTML = `<option value="">Micrófono…</option>` + list.map(d => `<option value="${d.deviceId}">${d.label || "Mic (sin nombre)"}</option>`).join("");
+    }); }catch(e){} })();
+  </script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
