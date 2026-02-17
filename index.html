@@ -48,7 +48,7 @@
 /* Capas usando la misma imagen como fondo para que encaje perfecto */
 .mouthLayer,.eyesLayer{
   position:absolute; inset:0; pointer-events:none;
-  background-image:url("/assets/avatar.webp");
+  background-image:url("/assets/avatar_open.png");
 
   /* 🔥 CLAVE: 1:1 exacto con el <img> */
   background-size: 100% 100%;
@@ -79,7 +79,19 @@
   transition: transform 90ms ease;
 }
 
-  </style>
+  
+/* NUEVO: overlay de parpadeo real (avatar_blink.png) */
+.blinkImg{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  pointer-events:none;
+  opacity:0;
+  transition: opacity 90ms ease;
+}
+</style>
 </head>
 
 <body>
@@ -115,9 +127,9 @@
       <div class="grid">
         <div class="avatarBox">
             <div id="avatarWrap" class="avatarWrap idle">
-          <img id="avatarImg" src="/assets/avatar.webp" alt="Avatar" />
+          <img id="avatarImg" src="/assets/avatar_open.png" alt="Avatar" />
           <div id="mouthLayer" class="mouthLayer"></div>
-          <div id="eyesLayer" class="eyesLayer"></div>
+          <img id="blinkImg" class="blinkImg" src="/assets/avatar_blink.png" alt="" />
         </div>
         <div class="mini" id="avatarHint">Avatar: lipsync (TTS) + blink (pro)</div>
       </div>
@@ -179,7 +191,7 @@ setAvatar("idle");
 // ===== PRO: Lipsync usando el audio real del BOT (TTS) + Blink =====
 const avatarWrap = document.getElementById("avatarWrap");
 const mouthLayer = document.getElementById("mouthLayer");
-const eyesLayer  = document.getElementById("eyesLayer");
+const blinkImg  = document.getElementById("blinkImg");
 
 // Audio del bot + analyser (WebAudio) para lipsync real
 let botAudio = null;
@@ -243,17 +255,18 @@ function lipsyncLoop(){
 }
 lipsyncLoop();
 
-// Blink aleatorio: cada 2–6s, 120ms
+// Blink aleatorio: cada 2–6s, 120ms (overlay blinkImg)
 (function scheduleBlink(){
   const wait = 2000 + Math.random()*4000;
   setTimeout(()=>{
-    if (eyesLayer){
-      eyesLayer.classList.add("blink");
-      setTimeout(()=> eyesLayer.classList.remove("blink"), 120);
+    if (blinkImg){
+      blinkImg.style.opacity = "1";
+      setTimeout(()=> blinkImg.style.opacity = "0", 120);
     }
     scheduleBlink();
   }, wait);
 })();
+
 
 // Mantén __vxSpeaking sincronizado con el estado
 window.addEventListener("VX_AVATAR", (e)=>{
@@ -414,6 +427,7 @@ console.error(e);
   </script>
 </body>
 </html>
+
 
 
 
