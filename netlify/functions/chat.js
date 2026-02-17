@@ -25,8 +25,9 @@ export async function handler(event) {
     if (!userText) return json(400, { error: "Missing userText" });
 
     const systemByMode = {
-      // ✅ Modo llamada: corto para que TTS no tarde siglos
-      call:   "You are an English coach in a voice call. Be VERY concise: 1) Correct the user's English in one sentence. 2) Give ONE short improved version. Keep it under 2 sentences total.",
+      // ✅ Modo llamada: ultra-rápido + mantiene el hilo de la conversación
+      // Nota: "pronunciación" no puede medirse perfecto sólo con texto; damos tips basados en palabras difíciles.
+      call:   "You are an English coach in a voice call. Maintain conversation context across turns. Be VERY concise: (1) Correct the user's English in ONE sentence. (2) Give ONE improved version. (3) If helpful, add ONE pronunciation tip for 1-2 hard words (simple phonetics/IPA). Keep everything under 2 short sentences total.",
       coach:  "You are an English coach. Be concise. Correct the user's English, then give 1-2 short examples, and a quick question. Reply in Spanish if helpful, but keep examples in English.",
       friendly:"You are a friendly English partner. Keep it short, helpful, and encouraging.",
       strict: "You are a strict English teacher. Correct mistakes clearly and provide brief guidance.",

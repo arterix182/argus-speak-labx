@@ -66,6 +66,11 @@
 
     const j = await jsonOrThrow(r, "CHAT");
 
+    // ✅ Mantén memoria de conversación (para que el avatar "siga" el hilo)
+    // El backend responde { reply, memory }. Guardamos memory global para que
+    // diferentes pantallas puedan reutilizarlo sin romper compatibilidad.
+    try{ window.VX_chatLastMemory = Array.isArray(j.memory) ? j.memory : (ctx.history || []); }catch{}
+
     const reply =
       j.reply ??
       j.text ??
@@ -83,14 +88,15 @@
     if (!t) return Promise.resolve();
 
     // ✅ Para voz: máximo 1–2 frases (reduce latencia brutal sin tocar el texto en pantalla)
-    const tSpeak = t.length > 240 ? (t.slice(0, 240).replace(/\s+\S*$/, "") + "…") : t;
+    // Mantén la voz MUY ágil (menos texto = menos tiempo de generación)
+    const tSpeak = t.length > 180 ? (t.slice(0, 180).replace(/\s+\S*$/, "") + "…") : t;
 
     const payload = {
       text: tSpeak,
       model: "tts-1",          // ✅ más rápido que tts-1-hd
       voice: "nova",           // ✅ voz femenina consistente
       format: "mp3",
-      speed: 0.85              // ✅ más lento para aprender (NO afecta la latencia grande; afecta dicción)
+      speed: 1.0               // ✅ más rápido (menos sensación de “se tarda siglos”)
     };
 
     return fetch("/api/tts", {

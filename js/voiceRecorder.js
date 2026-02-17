@@ -18,13 +18,17 @@
   let callActive = false;
   let busyTurn = false;
 
-  // ✅ Ajustes de silencio
-  let SILENCE_HOLD_MS = 420;      // silencio necesario para cortar
-  let START_THRESHOLD = 0.020;    // umbral para “ya está hablando”
-  let SILENCE_THRESHOLD = 0.012;  // umbral para considerar silencio
+  // ✅ Memoria de conversación (para que "siga" el hilo)
+  let history = [];
+
+  // ✅ Ajustes de silencio (se auto-ajustan por ruido ambiente)
+  // Si tu planta/ambiente tiene ruido, un umbral fijo puede tardar mucho en detectar silencio.
+  let SILENCE_HOLD_MS = 260;      // silencio necesario para cortar (más rápido)
+  let START_THRESHOLD = 0.020;    // base; luego se ajusta por calibración
+  let SILENCE_THRESHOLD = 0.012;  // base; luego se ajusta por calibración
 
   // ✅ detector más rápido
-  const SILENCE_TICK_MS = 50;
+  const SILENCE_TICK_MS = 40;
 
   // ✅ chunks más frecuentes
   const TIMESLICE_MS = 250;
@@ -107,24 +111,61 @@
     return Math.sqrt(sum/data.length);
   }
 
-  function detectSilenceAndStop(getRms){
+  async function calibrateNoiseFloor(ms = 320){
+    // Toma una muestra rápida del ruido ambiente para ajustar thresholds.
+    const t0 = Date.now();
+    const samples = [];
+    while(Date.now() - t0 < ms){
+      samples.push(getRmsNow());
+      await new Promise(r=>setTimeout(r, 40));
+    }
+    if(!samples.length) return 0.010;
+    const avg = samples.reduce((a,b)=>a+b,0)/samples.length;
+    return Math.max(0.006, Math.min(avg, 0.060));
+  }
+
+  function detectSilenceAndStop(getRms, th){
     let startedTalking = false;
     let silenceSince = null;
+
+    const startTh   = th?.start ?? START_THRESHOLD;
+    const silenceTh = th?.silence ?? SILENCE_THRESHOLD;
+    const maxTalkMs = th?.maxTalkMs ?? 9000;   // evita “me quedé hablando y nunca corta”
+    const maxTurnMs = th?.maxTurnMs ?? 12000;  // tope duro
+    const turnStart = Date.now();
+    let talkStart = null;
 
     return new Promise((resolve)=>{
       const t = setInterval(()=>{
         if(!callActive || !mediaRecorder) { clearInterval(t); return resolve("stopped"); }
         const rms = getRms();
 
+        // Tope duro del turno (por si el mic está raro o el ruido no deja cortar)
+        if(Date.now() - turnStart > maxTurnMs){
+          clearInterval(t);
+          try{ if(mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.requestData(); }catch{}
+          setTimeout(()=>{ try{ if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop(); }catch{}; resolve("max"); }, 20);
+          return;
+        }
+
         if(!startedTalking){
-          if(rms >= START_THRESHOLD){
+          if(rms >= startTh){
             startedTalking = true;
+            talkStart = Date.now();
             silenceSince = null;
           }
           return;
         }
 
-        if(rms < SILENCE_THRESHOLD){
+        // Si ya empezó a hablar, también ponemos tope por “habla continua”
+        if(talkStart && (Date.now() - talkStart > maxTalkMs)){
+          clearInterval(t);
+          try{ if(mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.requestData(); }catch{}
+          setTimeout(()=>{ try{ if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop(); }catch{}; resolve("maxtalk"); }, 20);
+          return;
+        }
+
+        if(rms < silenceTh){
           if(silenceSince == null) silenceSince = Date.now();
           if(Date.now() - silenceSince >= SILENCE_HOLD_MS){
             clearInterval(t);
@@ -188,8 +229,18 @@
 
     mediaRecorder.start(TIMESLICE_MS);
 
+    // ✅ Calibra ruido ambiente justo antes de escuchar (reduce los “10s” por ruido)
+    const noise = await calibrateNoiseFloor(280);
+    const th = {
+      // En ambientes ruidosos sube thresholds automáticamente.
+      start:   Math.max(0.018, noise * 2.4),
+      silence: Math.max(0.010, noise * 1.6),
+      maxTalkMs: 9000,
+      maxTurnMs: 12000,
+    };
+
     // auto-stop por silencio
-    await detectSilenceAndStop(getRmsNow);
+    await detectSilenceAndStop(getRmsNow, th);
     await done;
 
     const blob = new Blob(chunks, { type: mimeType });
@@ -207,9 +258,19 @@
       T.stt = Math.round(performance.now() - tStt0);
       onUserText(userText);
 
-      // CHAT
+      // CHAT (con memoria)
       const tChat0 = performance.now();
-      const reply = await window.VX_chatReply(userText);
+      const reply = await window.VX_chatReply(userText, { history, mode: "call" });
+      // Actualiza memoria desde el backend
+      try{
+        const m = window.VX_chatLastMemory;
+        if(Array.isArray(m) && m.length) history = m.slice(-14);
+        else {
+          history = [...history, { role:"user", content:userText }, { role:"assistant", content:reply }].slice(-14);
+        }
+      }catch(_){
+        history = [...history, { role:"user", content:userText }, { role:"assistant", content:reply }].slice(-14);
+      }
       T.chat = Math.round(performance.now() - tChat0);
       onBotText(reply);
 
@@ -255,6 +316,8 @@
     if(typeof window.VX_chatReply !== "function") throw new Error("Pipeline CHAT no cargó (VX_chatReply).");
     if(typeof window.VX_ttsSpeak !== "function") throw new Error("Pipeline TTS no cargó (VX_ttsSpeak).");
 
+    // Resetea memoria al iniciar llamada (si quieres persistencia entre sesiones, lo guardamos luego)
+    history = Array.isArray(opts.historySeed) ? opts.historySeed.slice(-14) : [];
     callActive = true;
 
     await openMic();
@@ -304,9 +367,6 @@
     TIMESLICE_MS
   });
 })();
-
-
-
 
 
 

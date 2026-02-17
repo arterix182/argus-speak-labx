@@ -1,4 +1,4 @@
-// netlify/functions/stt.js (RAW audio body -> OpenAI Whisper)
+// netlify/functions/stt.js (RAW audio body -> OpenAI STT)
 import { Buffer } from "node:buffer";
 
 export const config = { api: { bodyParser: false } };
@@ -51,26 +51,52 @@ export async function handler(event) {
 }
 
 async function transcribeWithOpenAI({ key, audioBuf, mimeType, filename }) {
-  const form = new FormData();
-  form.append("model", "whisper-1");
-  form.append("file", new Blob([audioBuf], { type: mimeType }), filename);
+  // 🔥 Para velocidad: intenta primero gpt-4o-mini-transcribe (si tu cuenta lo tiene)
+  // y cae a whisper-1 como plan B.
+  // Docs: /v1/audio/transcriptions soporta gpt-4o-mini-transcribe y gpt-4o-transcribe además de whisper-1.
+  const preferredModels = [
+    process.env.OPENAI_STT_MODEL, // si lo defines en Netlify
+    "gpt-4o-mini-transcribe",
+    "gpt-4o-transcribe",
+    "whisper-1",
+  ].filter(Boolean);
 
-  const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}` },
-    body: form,
-  });
+  let lastErr = null;
 
-  const txt = await r.text();
-  let j = {};
-  try { j = txt ? JSON.parse(txt) : {}; } catch { j = { error: txt }; }
+  for (const model of preferredModels) {
+    try {
+      const form = new FormData();
+      form.append("model", model);
+      form.append("file", new Blob([audioBuf], { type: mimeType }), filename);
 
-  if (!r.ok) {
-    const msg = j?.error?.message || j?.error || j?.message || txt || ("HTTP " + r.status);
-    throw new Error(`OpenAI STT ${r.status}: ${msg}`);
+      // Opcional: VAD del servidor (útil si mandas audio largo). Solo para modelos gpt-4o-*.
+      if (String(model).startsWith("gpt-4o")) {
+        form.append("chunking", "auto");
+      }
+
+      const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}` },
+        body: form,
+      });
+
+      const txt = await r.text();
+      let j = {};
+      try { j = txt ? JSON.parse(txt) : {}; } catch { j = { error: txt }; }
+
+      if (!r.ok) {
+        const msg = j?.error?.message || j?.error || j?.message || txt || ("HTTP " + r.status);
+        throw new Error(`model=${model} -> ${r.status}: ${msg}`);
+      }
+
+      return String(j.text || "").trim();
+    } catch (e) {
+      lastErr = e;
+      // sigue al siguiente modelo
+    }
   }
 
-  return String(j.text || "").trim();
+  throw new Error(`OpenAI STT failed: ${lastErr?.message || String(lastErr)}`);
 }
 
 function json(statusCode, obj) {
