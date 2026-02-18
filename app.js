@@ -138,6 +138,18 @@ window.LABX.getSession = () => authSession;
 window.LABX.getMeState = () => meState;
 window.LABX.ensureAuthInit = () => { try{ return ensureAuthInit(); }catch(e){ return Promise.resolve(); } };
 
+// Responder al iframe del Avatar para validar PRO (simple gate por postMessage)
+window.addEventListener("message", (ev) => {
+  try{
+    const d = ev?.data || {};
+    if(d && d.type === "LABX_REQUEST_PRO"){
+      ev.source?.postMessage({ type:"LABX_PRO_STATUS", pro: !!meState?.pro }, "*");
+    }
+  }catch(e){ /* ignore */ }
+});
+
+
+
 function setPlanPillUI(){
   if(!planPill) return;
   if(meState.pro){
@@ -147,6 +159,24 @@ function setPlanPillUI(){
     planPill.textContent = "FREE";
     delete planPill.dataset.plan;
   }
+}
+
+function updateProGatesUI(){
+  try{
+    const avatarTab = document.querySelector('.tab[data-view="avatar"]');
+    if(avatarTab){
+      if(!avatarTab.dataset.baseLabel){
+        avatarTab.dataset.baseLabel = avatarTab.textContent.trim();
+      }
+      if(meState?.pro){
+        avatarTab.classList.remove("is-locked");
+        avatarTab.textContent = avatarTab.dataset.baseLabel; // "Avatar"
+      }else{
+        avatarTab.classList.add("is-locked");
+        avatarTab.textContent = `${avatarTab.dataset.baseLabel} 🔒PRO`;
+      }
+    }
+  }catch(e){ console.warn(e); }
 }
 
 
@@ -445,6 +475,7 @@ async function refreshMe(){
   if(!authSession?.access_token){
     meState = { pro:false, status:"free", email:"Invitado" };
     setPlanPillUI();
+  updateProGatesUI();
     renderAccountUI();
     return meState;
   }
@@ -454,6 +485,7 @@ async function refreshMe(){
     const email = authSession?.user?.email || "Cuenta";
     meState = { pro:false, status:"unknown", email };
     setPlanPillUI();
+  updateProGatesUI();
     renderAccountUI();
     return meState;
   }
@@ -464,6 +496,7 @@ async function refreshMe(){
     email: data?.user?.email || authSession?.user?.email || "Cuenta"
   };
   setPlanPillUI();
+  updateProGatesUI();
   renderAccountUI();
   return meState;
 }
@@ -482,6 +515,7 @@ function renderAccountUI(){
   if(btnManage) btnManage.hidden = !meState.pro;
   if(btnSubscribe) btnSubscribe.hidden = false;
   setPlanPillUI();
+  updateProGatesUI();
 
   // Keep the send-link button under a short cooldown to avoid Supabase email rate limits.
   updateOtpCooldownUI();
@@ -793,6 +827,7 @@ function ensureAuthInit(){
 }
 runWhenIdle(()=> ensureAuthInit());
 setPlanPillUI();
+  updateProGatesUI();
 
 // Post-checkout UX
 try{
@@ -1077,13 +1112,52 @@ async function ensureTrainingLoaded(){
 }
 
 const tabs = [...document.querySelectorAll(".tab")];
-tabs.forEach(t => t.addEventListener("click", () => setView(t.dataset.view)));
+
+function enterAppFromIntro(){
+  try{ mobileIntroBypassed = true; }catch(_){/* noop */}
+  try{ setMobileIntroActive(false); }catch(_){/* noop */}
+}
+
+// 📱 Si la Pantalla 1 (intro) está activa y el usuario toca cualquier pestaña,
+// lo tratamos como "Entrar" para que NO se quede atorado viendo solo el botón.
+tabs.forEach(t => t.addEventListener("click", () => {
+  const key = t.dataset.view;
+  try{
+    if(isSmallMobile && typeof isSmallMobile === "function" && isSmallMobile()){
+      if(document.body.classList.contains("mobile-intro-active")){
+        enterAppFromIntro();
+      }
+    }
+  }catch(e){ console.warn(e); }
+  setView(key);
+}));
 
 let __avatarLoaded = false;
 async function ensureAvatarLoaded(){
   if(__avatarLoaded) return;
   const mount = document.getElementById("avatarMount");
   if(!mount) return;
+
+  // 🔒 PRO gate: Avatar solo para suscripción PRO
+  if(!meState?.pro){
+    mount.innerHTML = `
+      <div style="padding:18px;display:flex;flex-direction:column;gap:12px;align-items:flex-start">
+        <div style="font-weight:800;font-size:18px">🔒 Avatar es PRO</div>
+        <div class="muted">Activa PRO para usar el Avatar (Beta). En FREE no se carga el módulo.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn--primary" id="btnGoProFromAvatar">Activar PRO</button>
+          <button class="btn btn--ghost" id="btnBackFromAvatar">Volver</button>
+        </div>
+      </div>
+    `;
+    try{
+      const a = document.getElementById("btnGoProFromAvatar");
+      const b = document.getElementById("btnBackFromAvatar");
+      if(a) a.onclick = () => { try{ openAccountModal(); }catch(e){ console.warn(e); } };
+      if(b) b.onclick = () => { try{ setView("home"); }catch(e){ console.warn(e); } };
+    }catch(e){ console.warn(e); }
+    return;
+  }
   // Aísla el avatar para que no choque con el MAIN (CSS, listeners, audio, etc.)
   const ifr = document.createElement("iframe");
   ifr.src = "./avatar.html";
@@ -1097,6 +1171,173 @@ async function ensureAvatarLoaded(){
   __avatarLoaded = true;
 }
 
+
+/* ---------- Mobile Intro (Pantalla 1) ---------- */
+const mobileIntroEl = document.getElementById("mobileIntro");
+const btnMobileContinue = document.getElementById("btnMobileContinue");
+const btnBackToIntro = document.getElementById("btnBackToIntro");
+
+const topbarEl = document.querySelector(".topbar");
+const tabsEl = document.querySelector(".tabs");
+
+// Controles Pantalla 1 (sin duplicar IDs del MAIN)
+const introVoiceFemale = document.getElementById("introVoiceFemale");
+const introVoiceMale = document.getElementById("introVoiceMale");
+const introVoiceExactSelect = document.getElementById("introVoiceExactSelect");
+const introBtnTestVoice = document.getElementById("introBtnTestVoice");
+const introBtnInstall = document.getElementById("introBtnInstall");
+const introBtnCheckAI = document.getElementById("introBtnCheckAI");
+const introBtnAccount = document.getElementById("introBtnAccount");
+const introPlanPill = document.getElementById("introPlanPill");
+
+let mobileIntroBypassed = false; // Pantalla 1 aparece en cada recarga (runtime only)
+let __introSyncTimer = null;
+
+function isSmallMobile(){
+  try{ return !!(window.matchMedia && window.matchMedia("(max-width: 900px)").matches); }
+  catch(_){ return window.innerWidth <= 900; }
+}
+
+function syncIntroFromMain(){
+  try{
+    const mainFemale = document.getElementById("voiceFemale");
+    const mainMale = document.getElementById("voiceMale");
+    const mainSelect = document.getElementById("voiceExactSelect");
+    const mainPlan = document.getElementById("planPill");
+
+    // Plan pill
+    if(mainPlan && introPlanPill){
+      introPlanPill.textContent = (mainPlan.textContent || "FREE").trim();
+    }
+
+    // Voz F/M (refleja aria-pressed del MAIN)
+    const femaleOn = mainFemale?.getAttribute("aria-pressed") === "true";
+    const maleOn = mainMale?.getAttribute("aria-pressed") === "true";
+    if(introVoiceFemale){
+      introVoiceFemale.classList.toggle("btn--soft", femaleOn);
+      introVoiceFemale.classList.toggle("btn--ghost", !femaleOn);
+    }
+    if(introVoiceMale){
+      introVoiceMale.classList.toggle("btn--soft", maleOn);
+      introVoiceMale.classList.toggle("btn--ghost", !maleOn);
+    }
+
+    // Voz exacta: copia opciones del MAIN (sin listeners) y sincroniza valor
+    if(mainSelect && introVoiceExactSelect){
+      if(introVoiceExactSelect.options.length !== mainSelect.options.length){
+        introVoiceExactSelect.innerHTML = "";
+        [...mainSelect.options].forEach(o => introVoiceExactSelect.appendChild(o.cloneNode(true)));
+      }
+      if(mainSelect.value && introVoiceExactSelect.value !== mainSelect.value){
+        introVoiceExactSelect.value = mainSelect.value;
+      }
+    }
+  }catch(e){ console.warn(e); }
+}
+
+function setMobileIntroActive(active){
+  const on = !!active;
+
+  document.body.classList.toggle("mobile-intro-active", on);
+  if(mobileIntroEl){
+    mobileIntroEl.setAttribute("aria-hidden", on ? "false" : "true");
+    mobileIntroEl.style.display = on ? "flex" : "none";
+  }
+
+  // Fallback duro: oculta chrome aunque el CSS falle por cache/UA
+  try{ if(topbarEl) topbarEl.style.display = on ? "none" : ""; }catch(_){}
+  try{ if(tabsEl) tabsEl.style.display = on ? "none" : ""; }catch(_){}
+
+  // Sincroniza controles mientras esté visible
+  if(on){
+    syncIntroFromMain();
+    if(__introSyncTimer) clearInterval(__introSyncTimer);
+    __introSyncTimer = setInterval(syncIntroFromMain, 600);
+  }else{
+    if(__introSyncTimer) clearInterval(__introSyncTimer);
+    __introSyncTimer = null;
+  }
+}
+
+function updateMobileIntro(){
+  const shouldShow = isSmallMobile() && !mobileIntroBypassed;
+  setMobileIntroActive(shouldShow);
+}
+
+// Botón "Entrar" => muestra Pantalla 2 (tabs + contenido)
+if(btnMobileContinue){
+  btnMobileContinue.addEventListener("click", () => {
+    try{
+      mobileIntroBypassed = true;
+      setMobileIntroActive(false);
+      setView("home"); // Pantalla 2 arranca en Inicio real (demo text)
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }catch(e){ console.warn(e); }
+  });
+}
+
+// Botón flotante => regresa a Pantalla 1
+if(btnBackToIntro){
+  btnBackToIntro.addEventListener("click", () => {
+    try{
+      mobileIntroBypassed = false;
+      setMobileIntroActive(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }catch(e){ console.warn(e); }
+  });
+}
+
+// Proxys de controles Pantalla 1 hacia los controles reales del MAIN
+if(introVoiceFemale){
+  introVoiceFemale.addEventListener("click", () => {
+    try{ document.getElementById("voiceFemale")?.click(); syncIntroFromMain(); }catch(e){ console.warn(e); }
+  });
+}
+if(introVoiceMale){
+  introVoiceMale.addEventListener("click", () => {
+    try{ document.getElementById("voiceMale")?.click(); syncIntroFromMain(); }catch(e){ console.warn(e); }
+  });
+}
+if(introVoiceExactSelect){
+  introVoiceExactSelect.addEventListener("change", () => {
+    try{
+      const mainSelect = document.getElementById("voiceExactSelect");
+      if(mainSelect){
+        mainSelect.value = introVoiceExactSelect.value;
+        mainSelect.dispatchEvent(new Event("change", { bubbles:true }));
+      }
+    }catch(e){ console.warn(e); }
+  });
+}
+if(introBtnTestVoice){
+  introBtnTestVoice.addEventListener("click", () => {
+    try{ document.getElementById("btnTestVoice")?.click(); }catch(e){ console.warn(e); }
+  });
+}
+if(introBtnInstall){
+  introBtnInstall.addEventListener("click", () => {
+    try{ document.getElementById("btnInstall")?.click(); }catch(e){ console.warn(e); }
+  });
+}
+if(introBtnCheckAI){
+  introBtnCheckAI.addEventListener("click", () => {
+    try{ document.getElementById("btnCheckAI")?.click(); }catch(e){ console.warn(e); }
+  });
+}
+if(introBtnAccount){
+  introBtnAccount.addEventListener("click", () => {
+    try{ document.getElementById("btnAccount")?.click(); }catch(e){ console.warn(e); }
+  });
+}
+
+// Si cambia el tamaño de pantalla, re-evalúa
+window.addEventListener("resize", () => {
+  try{ updateMobileIntro(); }catch(e){ console.warn(e); }
+});
+
+// Init: Pantalla 1 aparece siempre al cargar en móvil
+try{ updateMobileIntro(); }catch(e){ console.warn(e); }
+
 function setView(key){
   try{ stopSpeech(); }catch(e){ console.warn(e); }
   try{ stopListen(); }catch(e){ console.warn(e); }
@@ -1108,6 +1349,15 @@ function setView(key){
     try{ ARGUS_DEBUG.show(e?.stack || e?.message || String(e)); }catch{}
   }
 
+  // 📱 Mobile Intro: si navegas fuera de Inicio, ya se considera que "entró" a la app (solo en runtime)
+  try{
+    if(key !== "home"){
+      mobileIntroBypassed = true;
+    }
+    updateMobileIntro(key);
+  }catch(e){ console.warn(e); }
+
+
   // Carga el módulo de Entrenamiento solo cuando se abre esa pestaña (mejora rendimiento)
   if(key === "training"){
     ensureTrainingLoaded().catch(()=>{});
@@ -1117,6 +1367,13 @@ function setView(key){
   if(key === "avatar"){
     ensureAvatarLoaded().catch(()=>{});
   }
+
+  // 📱 Mobile: en pantallas chicas, oculta la barra superior fuera de "Inicio" para ganar espacio (según propuesta UI)
+  try{
+    const isSmall = window.matchMedia && window.matchMedia("(max-width: 900px)").matches;
+    document.body.classList.toggle("mobile-hide-topbar", !!isSmall);
+    document.body.classList.toggle("view-home", key === "home");
+  }catch(e){ console.warn(e); }
 try{
     window.scrollTo({ top: 0, behavior: "smooth" });
   }catch(_){
@@ -1143,9 +1400,21 @@ if(btnInstall) btnInstall.addEventListener("click", async () => {
 });
 
 async function registerSW(){
-  if("serviceWorker" in navigator){
-    try{ await navigator.serviceWorker.register("./sw.js"); }catch(_){}
-  }
+  if(!("serviceWorker" in navigator)) return;
+  try{
+    const reg = await navigator.serviceWorker.register("./sw.js");
+    try{ await reg.update(); }catch(_){ }
+
+    // Si hay un SW en espera, pídele que tome control
+    try{ if(reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" }); }catch(_){ }
+
+    // Cuando cambie el controlador, recarga para tomar el nuevo bundle
+    try{
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        try{ window.location.reload(); }catch(_){ }
+      }, { once: true });
+    }catch(_){ }
+  }catch(_){ }
 }
 registerSW();
 

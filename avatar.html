@@ -131,6 +131,18 @@
 </head>
 
 <body>
+  <div id="proGate" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:18px;background:radial-gradient(1200px 800px at 20% 10%, rgba(98,230,255,.18), transparent 55%), rgba(7,20,38,.96);backdrop-filter: blur(10px); z-index:9999;">
+    <div style="max-width:560px;width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,.45)">
+      <div style="font-size:22px;font-weight:800;margin:0 0 6px">🔒 Avatar es PRO</div>
+
+<div style="opacity:.85;margin:0 0 14px;line-height:1.35">Este módulo solo está disponible con suscripción PRO.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a href="./" style="text-decoration:none"><button class="primary" type="button">Volver a la app</button></a>
+      </div>
+      <div id="proGateHint" style="margin-top:10px;font-size:13px;opacity:.75">Verificando suscripción…</div>
+    </div>
+  </div>
+
   <div class="wrap">
     <div class="card">
       <div class="row" style="justify-content:space-between">
@@ -471,6 +483,38 @@ console.error(e);
       micSelect.innerHTML = `<option value="">Micrófono…</option>` + list.map(d => `<option value="${d.deviceId}">${d.label || "Mic (sin nombre)"}</option>`).join("");
     }); }catch(e){} })();
   </script>
+
+<script>
+window.addEventListener("DOMContentLoaded", () => {
+  const gate = document.getElementById("proGate");
+  const hint = document.getElementById("proGateHint");
+  function allow(){ if(gate) gate.style.display = "none"; }
+  function deny(msg){ if(hint) hint.textContent = msg || "Activa PRO para continuar."; }
+
+  let decided = false;
+  function onMsg(ev){
+    const d = ev && ev.data;
+    if(!d || d.type !== "LABX_PRO_STATUS") return;
+    decided = true;
+    window.removeEventListener("message", onMsg);
+    if(d.pro) allow();
+    else deny("No tienes PRO activo. Abre 'Cuenta' en la app y suscríbete.");
+  }
+  window.addEventListener("message", onMsg);
+
+  try{
+    if(window.parent && window.parent !== window){
+      window.parent.postMessage({ type:"LABX_REQUEST_PRO" }, "*");
+      setTimeout(() => { if(!decided) deny("No pude verificar PRO. Abre el Avatar desde la app principal."); }, 1200);
+    }else{
+      setTimeout(() => deny("Abre el Avatar desde la app principal (PRO)."), 60);
+    }
+  }catch(e){
+    deny("Abre el Avatar desde la app principal (PRO).");
+  }
+});
+</script>
+
 </body>
 </html>
 

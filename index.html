@@ -57,7 +57,48 @@
 
     <!-- HOME -->
     <section class="view is-active" id="view-home">
-      <div class="grid2">
+      
+      <!-- MOBILE INTRO (Pantalla 1) -->
+      <div class="mobileIntro" id="mobileIntro" aria-hidden="true">
+        <div class="mobileIntro__content">
+
+          <div class="introBrand">
+            <img class="introBrand__logo" src="./assets/icon-512.png" alt="ARGUS SPEAK LAB-X" />
+            <div class="introBrand__name">ARGUS SPEAK <span class="labx">LAB‑X</span></div>
+            <div class="introBrand__tag">Toca · Habla · Subs de nivel</div>
+          </div>
+
+          <div class="introControls">
+            <div class="introRow">
+              <span class="introLabel">Voz</span>
+              <div class="introPillGroup" role="group" aria-label="Voz del lector">
+                <button id="introVoiceFemale" class="btn btn--soft btn--mini" type="button">Femenino</button>
+                <button id="introVoiceMale" class="btn btn--ghost btn--mini" type="button">Masculino</button>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>Voz exacta</span>
+              <div class="row row--tight">
+                <select id="introVoiceExactSelect" class="select" aria-label="Voz exacta (Pantalla 1)"></select>
+                <button id="introBtnTestVoice" class="btn btn--ghost btn--mini" type="button" title="Probar voz">🔊</button>
+              </div>
+            </label>
+
+            <div class="introActions">
+              <button id="introBtnInstall" class="btn btn--ghost" type="button">Instalar</button>
+              <button id="introBtnCheckAI" class="btn btn--primary" type="button">Probar IA</button>
+              <button id="introBtnAccount" class="btn btn--ghost" type="button">Cuenta</button>
+              <div class="planPill" id="introPlanPill" title="Estado de suscripción">FREE</div>
+            </div>
+
+            <button class="btn btn--primary mobileIntro__continue" id="btnMobileContinue" type="button">Entrar</button>
+          </div>
+
+        </div>
+      </div>
+
+<div class="grid2">
         <section class="card card--hero">
           <div class="card__title">Modo lectura instantánea</div>
           <div class="card__subtitle">Toca una palabra para ver traducción, uso y pronunciación con IA.</div>
@@ -331,6 +372,9 @@
       }
     })();
   </script>
+
+<!-- 📱 Botón flotante para volver a Pantalla 1 (solo móvil) -->
+<button id="btnBackToIntro" class="mobileBackIntro" type="button" aria-label="Volver a Pantalla 1">⌂ Pantalla 1</button>
 <script src="./app.js"></script>
 </body>
 </html>

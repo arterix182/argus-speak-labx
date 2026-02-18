@@ -1,4 +1,4 @@
-const CACHE = "argus-speak-labx-v15";
+const CACHE = "argus-speak-labx-v16";
 const CORE = [
   "./",
   "./index.html",
@@ -20,6 +20,12 @@ const CORE = [
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
   self.skipWaiting();
+});
+
+self.addEventListener("message", (e) => {
+  try{
+    if(e.data && (e.data.type==="SKIP_WAITING" || e.data==="SKIP_WAITING")) self.skipWaiting();
+  }catch(_){ }
 });
 
 self.addEventListener("activate", (e) => {
