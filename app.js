@@ -1279,11 +1279,18 @@ if(btnMobileContinue){
 // Botón flotante => regresa a Pantalla 1
 if(btnBackToIntro){
   btnBackToIntro.addEventListener("click", () => {
-    try{
-      mobileIntroBypassed = false;
-      setMobileIntroActive(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }catch(e){ console.warn(e); }
+  try{
+    // ✅ La Pantalla 1 vive dentro de "Inicio"; primero activamos Inicio y luego mostramos el overlay.
+    mobileIntroBypassed = false;
+    try{ setView("home"); }catch(_){/* noop */}
+    const show = () => {
+      try{
+        setMobileIntroActive(true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }catch(e){ console.warn(e); }
+    };
+    try{ requestAnimationFrame(show); }catch(_){ setTimeout(show, 0); }
+  }catch(e){ console.warn(e); }
   });
 }
 
