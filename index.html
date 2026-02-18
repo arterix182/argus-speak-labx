@@ -52,7 +52,8 @@
       <button class="tab" data-view="vocab">Vocab</button>
       <button class="tab" data-view="daily">10/Día</button>
       <button class="tab" data-view="training">Entrenamiento</button>
-    </nav>
+          <button class="tab" data-view="avatar">Avatar</button>
+</nav>
 
     <!-- HOME -->
     <section class="view is-active" id="view-home">
@@ -172,6 +173,16 @@
 
         <div class="dailyGrid" id="dailyGrid"></div>
       </section>
+    </section>
+
+  
+    <!-- AVATAR -->
+    <section class="view" id="view-avatar">
+      <div class="card">
+        <div class="card__title">Avatar (Beta)</div>
+        <p class="muted">Se carga solo cuando abres esta pestaña.</p>
+        <div id="avatarMount" style="width:100%;min-height:70vh;border:1px solid rgba(255,255,255,.12);border-radius:16px;overflow:hidden;background:#000"></div>
+      </div>
     </section>
 
   </main>

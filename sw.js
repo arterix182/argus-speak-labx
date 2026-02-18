@@ -1,7 +1,14 @@
-const CACHE = "argus-speak-labx-v14";
+const CACHE = "argus-speak-labx-v15";
 const CORE = [
   "./",
   "./index.html",
+  "./assets/mouth_open.png",
+  "./assets/mouth_closed.png",
+  "./assets/avatar_open.png",
+  "./assets/avatar_blink.png",
+  "./voiceRecorder.js",
+  "./voicePipeline.js",
+  "./avatar.html",
   "./styles.css",
   "./app.js",
   "./manifest.json",

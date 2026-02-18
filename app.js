@@ -1054,6 +1054,7 @@ const views = {
   vocab: $("#view-vocab"),
   daily: $("#view-daily"),
   training: $("#view-training"),
+  avatar: $("#view-avatar"),
 };
 
 
@@ -1078,6 +1079,24 @@ async function ensureTrainingLoaded(){
 const tabs = [...document.querySelectorAll(".tab")];
 tabs.forEach(t => t.addEventListener("click", () => setView(t.dataset.view)));
 
+let __avatarLoaded = false;
+async function ensureAvatarLoaded(){
+  if(__avatarLoaded) return;
+  const mount = document.getElementById("avatarMount");
+  if(!mount) return;
+  // Aísla el avatar para que no choque con el MAIN (CSS, listeners, audio, etc.)
+  const ifr = document.createElement("iframe");
+  ifr.src = "./avatar.html";
+  ifr.loading = "lazy";
+  ifr.style.width = "100%";
+  ifr.style.height = "75vh";
+  ifr.style.border = "0";
+  ifr.allow = "microphone; autoplay";
+  mount.innerHTML = "";
+  mount.appendChild(ifr);
+  __avatarLoaded = true;
+}
+
 function setView(key){
   try{ stopSpeech(); }catch(e){ console.warn(e); }
   try{ stopListen(); }catch(e){ console.warn(e); }
@@ -1094,7 +1113,11 @@ function setView(key){
     ensureTrainingLoaded().catch(()=>{});
   }
 
-  try{
+  
+  if(key === "avatar"){
+    ensureAvatarLoaded().catch(()=>{});
+  }
+try{
     window.scrollTo({ top: 0, behavior: "smooth" });
   }catch(_){
     try{ window.scrollTo(0,0); }catch{}
